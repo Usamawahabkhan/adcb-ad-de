@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Microsoft Fabric Warehouse SQL Basics Labs</title>
+<style>
+:root { --blue:#1654d1; --purple:#5c2d91; --dark:#123047; --bg:#f6f8fb; --panel:#fff; --border:#d7dee8; --code:#0f172a; --codetext:#e5e7eb; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:"Segoe UI", Arial, sans-serif; background:var(--bg); color:#1f2937; line-height:1.6; }
+header { background:linear-gradient(135deg,var(--blue),var(--purple)); color:white; padding:44px 28px; text-align:center; }
+header h1 { margin:0; font-size:2.25rem; }
+header p { max-width:1000px; margin:12px auto 0; font-size:1.05rem; }
+main { max-width:1220px; margin:auto; padding:26px; }
+section { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:24px; margin:18px 0; box-shadow:0 2px 8px rgba(15,23,42,.05); }
+h2 { color:var(--dark); margin-top:0; border-bottom:2px solid #e5f2fb; padding-bottom:8px; }
+h3 { color:#23445f; }
+h4 { color:#34556e; }
+.badge { display:inline-block; background:#eef6fc; color:#123047; border:1px solid #c7e3f7; border-radius:999px; padding:4px 10px; margin:4px; font-weight:600; }
+.success { background:#eef8ef; border-left:5px solid #21a366; padding:14px 16px; border-radius:8px; margin:14px 0; }
+.warning { background:#fff0ed; border-left:5px solid #d83b01; padding:14px 16px; border-radius:8px; margin:14px 0; }
+.note { background:#fff8df; border-left:5px solid #f2c94c; padding:14px 16px; border-radius:8px; margin:14px 0; }
+table { width:100%; border-collapse:collapse; margin:14px 0; }
+th,td { border:1px solid var(--border); padding:10px 12px; text-align:left; vertical-align:top; }
+th { background:#eef6fc; color:var(--dark); }
+pre { background:var(--code); color:var(--codetext); padding:18px; border-radius:12px; overflow:auto; white-space:pre; font-family:Consolas,"Courier New",monospace; font-size:.84rem; line-height:1.45; border:1px solid #263145; }
+code { font-family:Consolas,"Courier New",monospace; }
+a { color:var(--blue); text-decoration:none; } a:hover { text-decoration:underline; }
+footer { text-align:center; color:#5b6472; padding:30px; }
+@media print { body{background:white} section{box-shadow:none; page-break-inside:avoid} pre{white-space:pre-wrap} header{print-color-adjust:exact;-webkit-print-color-adjust:exact} }
+</style>
+</head>
+<body>
+<header>
+<h1>Microsoft Fabric Warehouse SQL Basics Labs</h1>
+<p>Workspace Setup, Warehouse Sample Exploration, Visual Query, DQL, DDL, DML, Advanced SQL, and Warehouse Loading Patterns</p>
+<p><span class="badge">DDL & Warehouse Loading Patterns</span><span class="badge">DQL — SQL for Querying Data</span><span class="badge">DML Examples</span><span class="badge">Fabric Warehouse</span></p>
+</header>
+<main>
+<section>
+<h2>Course Overview</h2>
+<p>This HTML guide contains five classroom labs plus an additional DDL/DML/DQL loading-pattern section. The labs use the Microsoft Fabric Warehouse sample objects such as <code>dbo.Trip</code>, <code>dbo.Date</code>, and <code>dbo.Time</code>, and the loading-pattern section uses safe lab-owned tables prefixed with <code>lab_</code>.</p>
+<div class="warning"><strong>Important:</strong> Run DML examples only against the lab-owned tables created in this guide. Avoid updating or deleting rows in Fabric sample tables.</div>
+</section>
+<section><h2>Lab 1: Set Up Microsoft Fabric Workspace and Create a Warehouse Sample</h2>
+<table>
+<thead><tr><th>Field</th><th>Value</th></tr></thead>
+<tbody>
+<tr><td>Lab number</td><td>1</td></tr>
+<tr><td>Estimated duration</td><td>30–40 minutes</td></tr>
+<tr><td>Modality</td><td>Hands-on environment setup</td></tr>
+<tr><td>Primary Fabric items</td><td>Workspace, Warehouse</td></tr>
+</tbody>
+</table>
+<h3>Learning objectives</h3>
+<ul>
+<li>Create or access a Fabric-enabled workspace.</li>
+<li>Create a Warehouse sample in Fabric and verify that sample data is loaded.</li>
+<li>Understand the role of the Warehouse sample as a safe practice environment for SQL and analytics labs.</li>
+</ul>
+<h3>Concepts covered</h3>
+<ul><li>Fabric workspace</li><li>Warehouse item</li><li>Sample data initialization</li><li>Warehouse object browser</li><li>T-SQL endpoint awareness</li></ul>
+<h3>Detailed steps</h3>
+<ol>
+<li>Sign in to the Microsoft Fabric portal.</li>
+<li>Navigate to Workspaces and create a new Fabric-enabled workspace if one does not already exist.</li>
+<li>Select New and create a new Warehouse sample. Give it a unique descriptive name.</li>
+<li>Wait until Fabric finishes creating the Warehouse and loading the sample data.</li>
+<li>Open the Warehouse and review the Explorer pane to locate schemas, tables, and views.</li>
+<li>Open a new SQL query window and run the validation query.</li>
+</ol>
+<h3>SQL validation query</h3>
+<pre><code>SELECT
+    s.name  AS schema_name,
+    o.name  AS object_name,
+    o.type_desc AS object_type
+FROM sys.objects o
+JOIN sys.schemas s
+    ON o.schema_id = s.schema_id
+WHERE o.type IN (&#x27;U&#x27;,&#x27;V&#x27;)
+ORDER BY s.name, o.type_desc, o.name;</code></pre>
+<h3>Expected results</h3>
+<ul><li>The Warehouse opens successfully.</li><li>The object browser shows sample tables and views.</li><li>The SQL query returns a list of relational objects available in the Warehouse.</li></ul>
+<h3>Extension activities</h3>
+<ul><li>Record the names of key sample tables that seem fact-like versus dimension-like.</li><li>Identify one object you expect to use later for joins and one for aggregations.</li></ul>
+<h3>Troubleshooting</h3>
+<ul><li>If the Warehouse sample does not appear, verify workspace capacity and Fabric enablement.</li><li>If the query window does not run, confirm that the Warehouse item itself is open and not a Lakehouse SQL endpoint.</li></ul>
+<div class="note"><strong>Production note:</strong> In real projects, warehouse provisioning includes naming standards, access controls, dataset ownership, and environment separation such as development, test, and production.</div>
+</section><section><h2>Lab 2: Explore the Warehouse Sample and Profile Key Tables</h2>
+<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>
+<tr><td>Lab number</td><td>2</td></tr>
+<tr><td>Estimated duration</td><td>35–45 minutes</td></tr>
+<tr><td>Modality</td><td>Hands-on SQL + object exploration</td></tr>
+<tr><td>Primary Fabric items</td><td>Warehouse, SQL Query Editor</td></tr>
+</tbody></table>
+<h3>Learning objectives</h3>
+<ul><li>Profile important sample tables and identify candidate business entities.</li><li>Estimate row volumes and discover useful columns for filtering, joining, and aggregation.</li><li>Practice source profiling before writing analytic logic.</li></ul>
+<h3>Suggested profiling tasks</h3>
+<ol><li>Select three core sample tables and inspect the first 100 rows of each.</li><li>Count total rows per table.</li><li>List distinct values for one candidate category or status column.</li><li>Profile nulls on one critical business column.</li><li>Identify probable primary or business keys.</li></ol>
+<h3>Example profiling queries</h3>
+<pre><code>SELECT TOP 100 * FROM dbo.Trip;
+SELECT TOP 100 * FROM dbo.Date;
+SELECT TOP 100 * FROM dbo.Time;
+
+SELECT &#x27;Trip&#x27; AS table_name, COUNT(*) AS row_count FROM dbo.Trip
+UNION ALL
+SELECT &#x27;Date&#x27;, COUNT(*) FROM dbo.Date
+UNION ALL
+SELECT &#x27;Time&#x27;, COUNT(*) FROM dbo.Time;
+
+SELECT PassengerCount, COUNT(*) AS trip_count
+FROM dbo.Trip
+GROUP BY PassengerCount
+ORDER BY PassengerCount;
+
+-- Null profile example
+SELECT
+    SUM(CASE WHEN FareAmount IS NULL THEN 1 ELSE 0 END) AS null_fare_amount_rows,
+    SUM(CASE WHEN TripDistanceMiles IS NULL THEN 1 ELSE 0 END) AS null_distance_rows,
+    COUNT(*) AS total_rows
+FROM dbo.Trip;</code></pre>
+<h3>Deliverable</h3>
+<p>Create a short object profiling note that lists each profiled table, likely business purpose, candidate join key, row count, and one potential risk or quality issue.</p>
+</section><section><h2>Lab 3: Query the Warehouse Sample with the No-Code Visual Query Editor</h2>
+<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>
+<tr><td>Lab number</td><td>3</td></tr>
+<tr><td>Estimated duration</td><td>25–35 minutes</td></tr>
+<tr><td>Modality</td><td>No-code lab</td></tr>
+<tr><td>Primary Fabric items</td><td>Warehouse, Visual Query Editor</td></tr>
+</tbody></table>
+<h3>Learning objectives</h3>
+<ul><li>Use the Fabric visual query editor to build analytic queries without writing code.</li><li>Select columns, add filters, define aggregates, and preview results.</li><li>Compare no-code query construction with equivalent SQL.</li></ul>
+<h3>Lab tasks</h3>
+<ol><li>Open a new query in the Warehouse and switch to the visual query experience.</li><li>Add one sample table and choose a subset of fields.</li><li>Add a filter to narrow the result set.</li><li>Create an aggregation that returns counts or sums grouped by one business attribute.</li><li>Save the visual query and then switch to SQL view to inspect the generated T-SQL.</li></ol>
+<h3>Reflection questions</h3>
+<ul><li>What parts of the query were easier to build visually?</li><li>What parts would be easier to maintain in handwritten SQL?</li><li>When is a visual query editor useful in a real delivery environment?</li></ul>
+</section><section><h2>Lab 4: SQL Fundamentals in the Warehouse Sample</h2>
+<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>
+<tr><td>Lab number</td><td>4</td></tr>
+<tr><td>Estimated duration</td><td>60 minutes</td></tr>
+<tr><td>Modality</td><td>Hands-on SQL lab</td></tr>
+<tr><td>Primary Fabric items</td><td>Warehouse, SQL Query Editor</td></tr>
+</tbody></table>
+<h3>Learning objectives</h3>
+<ul><li>Write and run fundamental T-SQL queries against the Warehouse sample.</li><li>Use projection, filtering, sorting, distinct values, and aggregate functions.</li><li>Form the basis for later ETL and warehousing tasks.</li></ul>
+<h3>Task set A: Projection and filtering</h3>
+<pre><code>SELECT TOP 50
+    TripDistanceMiles,
+    PassengerCount,
+    FareAmount,
+    TipAmount
+FROM dbo.Trip
+WHERE PassengerCount &gt; 0
+ORDER BY FareAmount DESC;</code></pre>
+<h3>Task set B: Distinct values and distributions</h3>
+<pre><code>SELECT DISTINCT PassengerCount
+FROM dbo.Trip
+ORDER BY PassengerCount;
+
+SELECT PassengerCount, COUNT(*) AS count_of_trips
+FROM dbo.Trip
+WHERE PassengerCount &gt; 0
+GROUP BY PassengerCount
+ORDER BY PassengerCount;</code></pre>
+<h3>Task set C: Summary metrics</h3>
+<pre><code>SELECT
+    COUNT(*)               AS total_trips,
+    AVG(TripDistanceMiles) AS avg_distance,
+    SUM(FareAmount)        AS total_fare,
+    SUM(TipAmount)         AS total_tip
+FROM dbo.Trip;</code></pre>
+<h3>Detailed learner tasks</h3>
+<ol><li>Write one query that shows the highest-fare trips.</li><li>Write one query that shows how many trips exist for each passenger count.</li><li>Write one query that summarizes average distance and total fare across all trips.</li><li>Write one query that filters trips to a subset of interesting criteria of your choice.</li></ol>
+<h3>Stretch goal</h3><p>Create a reusable SQL snippet library for Day 1 and Day 2 use, where each snippet includes the business question it answers.</p>
+</section><section><h2>Lab 5: Advanced SQL on the Warehouse Sample</h2>
+<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>
+<tr><td>Lab number</td><td>5</td></tr>
+<tr><td>Estimated duration</td><td>75–90 minutes</td></tr>
+<tr><td>Modality</td><td>Hands-on advanced SQL lab</td></tr>
+<tr><td>Primary Fabric items</td><td>Warehouse, SQL Query Editor</td></tr>
+</tbody></table>
+<h3>Learning objectives</h3>
+<ul><li>Join sample tables to combine measures with contextual dimensions.</li><li>Use CTEs to structure complex logic.</li><li>Apply window functions for running totals, ranking, and row-level analytics.</li><li>Generate multi-level summaries with grouping sets.</li></ul>
+<h3>Part A: Joins</h3>
+<pre><code>SELECT TOP 100
+    d.Date,
+    tm.HourNumber,
+    tm.MinuteNumber,
+    t.PassengerCount,
+    t.TripDistanceMiles,
+    t.FareAmount
+FROM dbo.Trip AS t
+JOIN dbo.Date AS d
+    ON t.DateID = d.DateID
+JOIN dbo.Time AS tm
+    ON t.PickupTimeID = tm.TimeID;</code></pre>
+<h4>Step-by-step breakdown</h4>
+<ol><li><code>SELECT TOP 100</code> returns the first 100 rows for quick analysis.</li><li><code>FROM dbo.Trip AS t</code> uses the main fact-like trip table.</li><li><code>JOIN dbo.Date AS d</code> adds calendar context through <code>DateID</code>.</li><li><code>JOIN dbo.Time AS tm</code> adds time context through <code>PickupTimeID</code>.</li><li>The selected columns provide date, time, passenger count, distance, and fare insights.</li></ol>
+<h3>Part B: CTE and ranking</h3>
+<pre><code>WITH hourly_revenue AS (
+    SELECT
+        tm.HourlyBucket,
+        SUM(t.FareAmount + t.TipAmount) AS total_revenue
+    FROM dbo.Trip AS t
+    JOIN dbo.Time AS tm
+        ON t.PickupTimeID = tm.TimeID
+    GROUP BY tm.HourlyBucket
+)
+SELECT
+    HourlyBucket,
+    total_revenue,
+    DENSE_RANK() OVER (ORDER BY total_revenue DESC) AS revenue_rank
+FROM hourly_revenue
+ORDER BY revenue_rank;</code></pre>
+<h3>Part C: Grouping sets</h3>
+<pre><code>SELECT
+    d.IsWeekday,
+    tm.HourlyBucket,
+    COUNT(*) AS trip_count
+FROM dbo.Trip AS t
+JOIN dbo.Date AS d
+    ON t.DateID = d.DateID
+JOIN dbo.Time AS tm
+    ON t.PickupTimeID = tm.TimeID
+GROUP BY GROUPING SETS (
+    (d.IsWeekday, tm.HourlyBucket),
+    (d.IsWeekday),
+    ()
+);</code></pre>
+<h3>Part D: Running totals</h3>
+<pre><code>WITH daily_fare AS (
+    SELECT
+        d.[Date] AS CalendarDate,
+        SUM(t.FareAmount) AS daily_fare
+    FROM dbo.Trip AS t
+    JOIN dbo.[Date] AS d
+        ON t.DateID = d.DateID
+    GROUP BY d.[Date]
+)
+SELECT
+    CalendarDate,
+    daily_fare,
+    SUM(daily_fare) OVER (
+        ORDER BY CalendarDate
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    ) AS running_total_fare
+FROM daily_fare
+ORDER BY CalendarDate;</code></pre>
+<h3>Learner deliverable</h3><p>Write one original business question and answer it using at least one join, one CTE, and one window function.</p>
+</section><section><h2>DDL &amp; Warehouse Loading Patterns: DDL, DML, and DQL Examples</h2>
+<div class="success"><strong>Purpose:</strong> This section gives learners safe classroom tables for practicing DDL, DML, DQL, and warehouse loading patterns without changing the Fabric sample tables.</div>
+<h3>Key terms</h3>
+<ul>
+<li><strong>DDL</strong>: Data Definition Language, such as <code>CREATE TABLE</code> and <code>DROP TABLE</code>.</li>
+<li><strong>DML</strong>: Data Manipulation Language, such as <code>INSERT</code>, <code>UPDATE</code>, <code>DELETE</code>, and loading patterns.</li>
+<li><strong>DQL</strong>: Data Query Language, mainly <code>SELECT</code> queries used to read and analyze data.</li>
+<li><strong>Warehouse loading pattern</strong>: Load raw data into a stage table, validate it, capture errors, then insert valid rows into curated tables.</li>
+</ul>
+<pre><code>-- ============================================================
+-- DDL &amp; WAREHOUSE LOADING PATTERNS
+-- Safe classroom tables. These do not modify Fabric sample tables.
+-- ============================================================
+
+DROP TABLE IF EXISTS dbo.lab_LoadErrors;
+DROP TABLE IF EXISTS dbo.lab_FactSales;
+DROP TABLE IF EXISTS dbo.lab_StageSales;
+DROP TABLE IF EXISTS dbo.lab_Product;
+DROP TABLE IF EXISTS dbo.lab_Customer;
+
+-- DDL: Create dimension-like lookup tables
+CREATE TABLE dbo.lab_Customer (
+    CustomerID   INT          NOT NULL,
+    CustomerName VARCHAR(200) NOT NULL,
+    City         VARCHAR(100) NOT NULL,
+    LoyaltyTier  VARCHAR(50)  NOT NULL
+);
+
+CREATE TABLE dbo.lab_Product (
+    ProductID    INT           NOT NULL,
+    ProductName  VARCHAR(200)  NOT NULL,
+    CategoryName VARCHAR(100)  NOT NULL,
+    UnitPrice    DECIMAL(10,2) NOT NULL
+);
+
+-- DDL: Create raw stage table
+-- Stage columns are often flexible because file/API data can arrive as text.
+CREATE TABLE dbo.lab_StageSales (
+    BatchID      INT           NOT NULL,
+    OrderID      INT           NOT NULL,
+    OrderDate    VARCHAR(20)   NOT NULL,
+    CustomerID   INT           NOT NULL,
+    ProductID    INT           NOT NULL,
+    Quantity     INT           NOT NULL,
+    UnitPrice    DECIMAL(10,2) NOT NULL,
+    DiscountPct  DECIMAL(5,2)  NOT NULL
+);
+
+-- DDL: Create curated fact table
+CREATE TABLE dbo.lab_FactSales (
+    SalesKey         INT           NOT NULL,
+    OrderID          INT           NOT NULL,
+    OrderDate        DATE          NOT NULL,
+    CustomerID       INT           NOT NULL,
+    ProductID        INT           NOT NULL,
+    Quantity         INT           NOT NULL,
+    UnitPrice        DECIMAL(10,2) NOT NULL,
+    DiscountPct      DECIMAL(5,2)  NOT NULL,
+    GrossSalesAmount DECIMAL(10,2) NOT NULL,
+    DiscountAmount   DECIMAL(10,2) NOT NULL,
+    NetSalesAmount   DECIMAL(10,2) NOT NULL
+);
+
+CREATE TABLE dbo.lab_LoadErrors (
+    BatchID      INT          NOT NULL,
+    OrderID      INT          NOT NULL,
+    ErrorReason  VARCHAR(200) NOT NULL
+);
+
+-- DML: Insert sample lookup data
+INSERT INTO dbo.lab_Customer VALUES
+(1, &#x27;James Wilson&#x27;, &#x27;New York&#x27;, &#x27;Gold&#x27;),
+(2, &#x27;Sophia Martinez&#x27;, &#x27;Los Angeles&#x27;, &#x27;Platinum&#x27;),
+(3, &#x27;Ethan Brown&#x27;, &#x27;Chicago&#x27;, &#x27;Silver&#x27;);
+
+INSERT INTO dbo.lab_Product VALUES
+(101, &#x27;Wireless Headphones&#x27;, &#x27;Electronics&#x27;, 89.99),
+(102, &#x27;Smart Watch&#x27;, &#x27;Electronics&#x27;, 249.99),
+(103, &#x27;Running Jacket&#x27;, &#x27;Clothing&#x27;, 79.99);
+
+-- DML: Load raw stage data
+-- Includes one invalid row with negative quantity.
+INSERT INTO dbo.lab_StageSales VALUES
+(9001, 5001, &#x27;2024-04-01&#x27;, 1, 101, 2,  89.99,  0.00),
+(9001, 5002, &#x27;2024-04-02&#x27;, 2, 102, 1, 249.99, 10.00),
+(9001, 5003, &#x27;2024-04-03&#x27;, 3, 103, -1, 79.99,  5.00);
+
+-- DQL: Inspect staged rows
+SELECT *
+FROM dbo.lab_StageSales
+ORDER BY OrderID;
+
+-- DQL: Validate stage data
+SELECT
+    BatchID,
+    OrderID,
+    CASE
+        WHEN TRY_CAST(OrderDate AS DATE) IS NULL THEN &#x27;Invalid OrderDate&#x27;
+        WHEN Quantity &lt;= 0 THEN &#x27;Invalid Quantity&#x27;
+        WHEN UnitPrice &lt;= 0 THEN &#x27;Invalid Unit Price&#x27;
+        WHEN DiscountPct &lt; 0 OR DiscountPct &gt; 100 THEN &#x27;Invalid Discount Percent&#x27;
+        ELSE &#x27;Valid&#x27;
+    END AS ValidationStatus
+FROM dbo.lab_StageSales
+ORDER BY OrderID;
+
+-- DML loading pattern: Capture rejected rows
+INSERT INTO dbo.lab_LoadErrors
+SELECT
+    BatchID,
+    OrderID,
+    CASE
+        WHEN TRY_CAST(OrderDate AS DATE) IS NULL THEN &#x27;Invalid OrderDate&#x27;
+        WHEN Quantity &lt;= 0 THEN &#x27;Invalid Quantity&#x27;
+        WHEN UnitPrice &lt;= 0 THEN &#x27;Invalid Unit Price&#x27;
+        WHEN DiscountPct &lt; 0 OR DiscountPct &gt; 100 THEN &#x27;Invalid Discount Percent&#x27;
+        ELSE &#x27;Unknown Error&#x27;
+    END AS ErrorReason
+FROM dbo.lab_StageSales
+WHERE TRY_CAST(OrderDate AS DATE) IS NULL
+   OR Quantity &lt;= 0
+   OR UnitPrice &lt;= 0
+   OR DiscountPct &lt; 0
+   OR DiscountPct &gt; 100;
+
+-- DML loading pattern: Insert valid rows into curated fact table
+INSERT INTO dbo.lab_FactSales
+SELECT
+    ROW_NUMBER() OVER (ORDER BY s.OrderID) AS SalesKey,
+    s.OrderID,
+    TRY_CAST(s.OrderDate AS DATE) AS OrderDate,
+    s.CustomerID,
+    s.ProductID,
+    s.Quantity,
+    s.UnitPrice,
+    s.DiscountPct,
+    ROUND(s.Quantity * s.UnitPrice, 2) AS GrossSalesAmount,
+    ROUND(s.Quantity * s.UnitPrice * (s.DiscountPct / 100), 2) AS DiscountAmount,
+    ROUND(s.Quantity * s.UnitPrice * (1 - s.DiscountPct / 100), 2) AS NetSalesAmount
+FROM dbo.lab_StageSales AS s
+WHERE TRY_CAST(s.OrderDate AS DATE) IS NOT NULL
+  AND s.Quantity &gt; 0
+  AND s.UnitPrice &gt; 0
+  AND s.DiscountPct &gt;= 0
+  AND s.DiscountPct &lt;= 100;
+
+-- DQL: Query curated output with joins
+SELECT
+    f.OrderID,
+    f.OrderDate,
+    c.CustomerName,
+    c.LoyaltyTier,
+    p.ProductName,
+    p.CategoryName,
+    f.Quantity,
+    f.NetSalesAmount
+FROM dbo.lab_FactSales AS f
+JOIN dbo.lab_Customer AS c
+    ON f.CustomerID = c.CustomerID
+JOIN dbo.lab_Product AS p
+    ON f.ProductID = p.ProductID
+ORDER BY f.OrderDate;
+
+-- DQL: Aggregate curated output
+SELECT
+    p.CategoryName,
+    COUNT(*) AS sales_rows,
+    SUM(f.Quantity) AS units_sold,
+    SUM(f.NetSalesAmount) AS net_revenue
+FROM dbo.lab_FactSales AS f
+JOIN dbo.lab_Product AS p
+    ON f.ProductID = p.ProductID
+GROUP BY p.CategoryName
+ORDER BY net_revenue DESC;
+
+-- DML: Update example on lab table only
+UPDATE dbo.lab_Customer
+SET LoyaltyTier = &#x27;Platinum&#x27;
+WHERE CustomerID = 1;
+
+-- DML: Delete example on error table only
+DELETE FROM dbo.lab_LoadErrors
+WHERE ErrorReason = &#x27;Unknown Error&#x27;;
+
+-- Final check
+SELECT * FROM dbo.lab_LoadErrors ORDER BY OrderID;
+SELECT * FROM dbo.lab_FactSales ORDER BY OrderID;</code></pre>
+</section>
+</main>
+<footer>Classroom guide for Microsoft Fabric Warehouse SQL basics and loading patterns.</footer>
+</body></html>

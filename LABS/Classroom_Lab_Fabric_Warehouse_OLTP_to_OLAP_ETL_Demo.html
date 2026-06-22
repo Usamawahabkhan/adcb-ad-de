@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fabric Warehouse Lab: OLTP to OLAP Data Engineering Demo</title>
+<style>
+:root { --blue:#1654d1; --purple:#5c2d91; --dark:#123047; --bg:#f6f8fb; --panel:#fff; --border:#d7dee8; --code:#0f172a; --codetext:#e5e7eb; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:"Segoe UI", Arial, sans-serif; background:var(--bg); color:#1f2937; line-height:1.6; }
+header { background:linear-gradient(135deg,var(--blue),var(--purple)); color:white; padding:44px 28px; text-align:center; }
+header h1 { margin:0; font-size:2.25rem; }
+header p { max-width:1000px; margin:12px auto 0; font-size:1.05rem; }
+main { max-width:1220px; margin:auto; padding:26px; }
+section { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:24px; margin:18px 0; box-shadow:0 2px 8px rgba(15,23,42,.05); }
+h2 { color:var(--dark); margin-top:0; border-bottom:2px solid #e5f2fb; padding-bottom:8px; }
+h3 { color:#23445f; }
+.badge { display:inline-block; background:#eef6fc; color:#123047; border:1px solid #c7e3f7; border-radius:999px; padding:4px 10px; margin:4px; font-weight:600; }
+.success { background:#eef8ef; border-left:5px solid #21a366; padding:14px 16px; border-radius:8px; margin:14px 0; }
+.warning { background:#fff0ed; border-left:5px solid #d83b01; padding:14px 16px; border-radius:8px; margin:14px 0; }
+.note { background:#fff8df; border-left:5px solid #f2c94c; padding:14px 16px; border-radius:8px; margin:14px 0; }
+table { width:100%; border-collapse:collapse; margin:14px 0; }
+th,td { border:1px solid var(--border); padding:10px 12px; text-align:left; vertical-align:top; }
+th { background:#eef6fc; color:var(--dark); }
+pre { background:var(--code); color:var(--codetext); padding:18px; border-radius:12px; overflow:auto; white-space:pre; font-family:Consolas,"Courier New",monospace; font-size:.84rem; line-height:1.45; border:1px solid #263145; }
+code { font-family:Consolas,"Courier New",monospace; }
+.schema { background:#f8fafc; border:1px dashed #9fb3c8; border-radius:12px; padding:16px; font-family:Consolas,"Courier New",monospace; white-space:pre; overflow-x:auto; }
+footer { text-align:center; color:#5b6472; padding:30px; }
+@media print { body{background:white} section{box-shadow:none; page-break-inside:avoid} pre{white-space:pre-wrap} header{print-color-adjust:exact;-webkit-print-color-adjust:exact} }
+</style>
+</head>
+<body>
+<header>
+<h1>Fabric Warehouse Lab: OLTP to OLAP Data Engineering Demo</h1>
+<p>Source Trip Data → Stage → Validate → Clean → Fact Summary → Business Query → MERGE → Audit</p>
+<p><span class="badge">Microsoft Fabric Warehouse</span><span class="badge">Sample Data Warehouse</span><span class="badge">DDL</span><span class="badge">DML</span><span class="badge">DQL</span><span class="badge">MERGE</span></p>
+</header>
+<main>
+<section id="overview">
+<h2>Lab Overview</h2>
+<table>
+<thead><tr><th>Field</th><th>Value</th></tr></thead>
+<tbody>
+<tr><td>Lab title</td><td>Full Data Engineering Demo: OLTP-like source to OLAP summary in Fabric Warehouse</td></tr>
+<tr><td>Estimated duration</td><td>60–75 minutes</td></tr>
+<tr><td>Modality</td><td>Hands-on SQL lab</td></tr>
+<tr><td>Primary Fabric items</td><td>Warehouse sample, SQL Query Editor</td></tr>
+<tr><td>Source tables used</td><td><code>dbo.Trip</code>, <code>dbo.Geography</code></td></tr>
+<tr><td>Lab tables created</td><td><code>dbo.stage_trip_delta</code>, <code>dbo.stage_trip_clean</code>, <code>dbo.fact_trip_summary</code></td></tr>
+</tbody>
+</table>
+<div class="success"><strong>What was fixed:</strong> The original script used <code>CREATE TABLE AS SELECT</code>, which can be inconsistent for classroom Warehouse labs. This version creates tables explicitly and then uses <code>INSERT SELECT</code>. It also avoids <code>SELECT *</code> in created lab tables and uses Fabric-friendly <code>VARCHAR</code> and <code>TRY_CAST</code>.</div>
+</section>
+
+<section id="objectives">
+<h2>Learning Objectives</h2>
+<ul>
+<li>Understand how detailed source data can be transformed into analytical summary data.</li>
+<li>Create staging, clean, and fact-style summary tables in Microsoft Fabric Warehouse.</li>
+<li>Run data quality checks before loading curated output.</li>
+<li>Use aggregation to create an OLAP-style summary table.</li>
+<li>Use <code>MERGE</code> as an incremental loading pattern.</li>
+<li>Run audit checks to compare raw, staged, clean, and summary outputs.</li>
+</ul>
+</section>
+
+<section id="concepts">
+<h2>Concepts Covered</h2>
+<ul>
+<li><strong>OLTP-like source:</strong> Detailed transactional source table such as <code>dbo.Trip</code>.</li>
+<li><strong>Staging:</strong> Source-shaped table used before data cleaning.</li>
+<li><strong>Validation:</strong> SQL checks for duplicate, missing, or invalid data.</li>
+<li><strong>Cleaning:</strong> Standardizing values and filtering invalid records.</li>
+<li><strong>OLAP summary:</strong> Aggregated table optimized for analytics and reporting.</li>
+<li><strong>MERGE:</strong> Incremental load pattern for updating or inserting summary rows.</li>
+<li><strong>Audit:</strong> Row-count and revenue checks after loading.</li>
+</ul>
+</section>
+
+<section id="flow">
+<h2>End-to-End Flow</h2>
+<div class="schema">dbo.Trip sample table
+      ↓
+stage_trip_delta
+      ↓
+validation checks
+      ↓
+stage_trip_clean
+      ↓
+fact_trip_summary
+      ↓
+join to dbo.Geography
+      ↓
+business revenue query
+      ↓
+MERGE incremental load
+      ↓
+audit checks</div>
+</section>
+
+<section id="run-notes">
+<h2>Before You Run</h2>
+<ul>
+<li>Open the Microsoft Fabric Warehouse sample in the SQL Query Editor.</li>
+<li>Run each step in order.</li>
+<li>If your sample table has different column names, first run <code>SELECT TOP 10 * FROM dbo.Trip;</code> and adjust the column names accordingly.</li>
+<li>This lab creates only lab-owned tables and does not update the sample source tables.</li>
+</ul>
+<div class="warning"><strong>Important:</strong> This lab is for Microsoft Fabric Warehouse, not local SQL Server. Use the Warehouse SQL Query Editor.</div>
+</section>
+
+
+<section id="step-1">
+<h2>STEP 0: CLEAN START</h2>
+<pre><code>-- ============================================================
+-- STEP 0: CLEAN START
+-- ============================================================
+DROP TABLE IF EXISTS dbo.fact_trip_summary;
+DROP TABLE IF EXISTS dbo.stage_trip_clean;
+DROP TABLE IF EXISTS dbo.stage_trip_delta;</code></pre>
+</section>
+<section id="step-2">
+<h2>STEP 1: SOURCE / OLTP-LIKE SAMPLE TABLE EXPLORATION</h2>
+<pre><code>-- ============================================================
+-- STEP 1: SOURCE / OLTP-LIKE SAMPLE TABLE EXPLORATION
+-- ============================================================
+-- Purpose:
+--   Inspect the source table and confirm that the sample Warehouse contains data.
+
+SELECT TOP 10
+    MedallionID,
+    DateID,
+    PickupTimeID,
+    PickupGeographyID,
+    PassengerCount,
+    TripDistanceMiles,
+    TotalAmount,
+    PaymentType
+FROM dbo.Trip;
+
+SELECT COUNT(*) AS TotalRawRows
+FROM dbo.Trip;</code></pre>
+</section>
+<section id="step-3">
+<h2>STEP 2: CREATE STAGING TABLE</h2>
+<pre><code>-- ============================================================
+-- STEP 2: CREATE STAGING TABLE
+-- ============================================================
+-- Purpose:
+--   Staging tables hold source-shaped data before cleaning and transformation.
+--   This lab creates an explicit table instead of CTAS for Fabric classroom clarity.
+
+CREATE TABLE dbo.stage_trip_delta (
+    MedallionID        VARCHAR(100)  NULL,
+    DateID             INT           NULL,
+    PickupTimeID       INT           NULL,
+    PickupGeographyID  INT           NULL,
+    PassengerCount     INT           NULL,
+    TotalAmount        DECIMAL(18,2) NULL,
+    PaymentType        VARCHAR(50)   NULL,
+    TripDistanceMiles  DECIMAL(18,2) NULL
+);</code></pre>
+</section>
+<section id="step-4">
+<h2>STEP 3: LOAD STAGING FROM SAMPLE WAREHOUSE TABLE</h2>
+<pre><code>-- ============================================================
+-- STEP 3: LOAD STAGING FROM SAMPLE WAREHOUSE TABLE
+-- ============================================================
+-- Purpose:
+--   Load a manageable subset from dbo.Trip into the staging table.
+--   TOP is used to keep classroom execution fast.
+
+INSERT INTO dbo.stage_trip_delta (
+    MedallionID,
+    DateID,
+    PickupTimeID,
+    PickupGeographyID,
+    PassengerCount,
+    TotalAmount,
+    PaymentType,
+    TripDistanceMiles
+)
+SELECT TOP 10000
+    CAST(MedallionID AS VARCHAR(100)) AS MedallionID,
+    TRY_CAST(DateID AS INT) AS DateID,
+    TRY_CAST(PickupTimeID AS INT) AS PickupTimeID,
+    TRY_CAST(PickupGeographyID AS INT) AS PickupGeographyID,
+    TRY_CAST(PassengerCount AS INT) AS PassengerCount,
+    TRY_CAST(TotalAmount AS DECIMAL(18,2)) AS TotalAmount,
+    CAST(PaymentType AS VARCHAR(50)) AS PaymentType,
+    TRY_CAST(TripDistanceMiles AS DECIMAL(18,2)) AS TripDistanceMiles
+FROM dbo.Trip
+WHERE DateID IS NOT NULL;
+
+SELECT COUNT(*) AS StageRows
+FROM dbo.stage_trip_delta;</code></pre>
+</section>
+<section id="step-5">
+<h2>STEP 4: VALIDATION / DATA QUALITY CHECKS</h2>
+<pre><code>-- ============================================================
+-- STEP 4: VALIDATION / DATA QUALITY CHECKS
+-- ============================================================
+-- Purpose:
+--   Identify duplicates, missing values, and invalid business values before loading curated output.
+
+-- 4A: Possible duplicate operational grain check
+SELECT
+    MedallionID,
+    DateID,
+    PickupTimeID,
+    COUNT(*) AS DuplicateCount
+FROM dbo.stage_trip_delta
+GROUP BY MedallionID, DateID, PickupTimeID
+HAVING COUNT(*) &gt; 1
+ORDER BY DuplicateCount DESC;
+
+-- 4B: Missing or invalid value checks
+SELECT COUNT(*) AS MissingTotalAmountRows
+FROM dbo.stage_trip_delta
+WHERE TotalAmount IS NULL;
+
+SELECT COUNT(*) AS InvalidDistanceRows
+FROM dbo.stage_trip_delta
+WHERE TripDistanceMiles &lt;= 0 OR TripDistanceMiles IS NULL;
+
+SELECT COUNT(*) AS MissingGeographyRows
+FROM dbo.stage_trip_delta
+WHERE PickupGeographyID IS NULL;
+
+-- 4C: Row-level validation status sample
+SELECT TOP 100
+    MedallionID,
+    DateID,
+    PickupTimeID,
+    PickupGeographyID,
+    PassengerCount,
+    TotalAmount,
+    TripDistanceMiles,
+    CASE
+        WHEN DateID IS NULL THEN &#x27;Invalid DateID&#x27;
+        WHEN PickupGeographyID IS NULL THEN &#x27;Invalid GeographyID&#x27;
+        WHEN TotalAmount IS NULL THEN &#x27;Missing TotalAmount&#x27;
+        WHEN TripDistanceMiles &lt;= 0 OR TripDistanceMiles IS NULL THEN &#x27;Invalid TripDistanceMiles&#x27;
+        ELSE &#x27;Valid&#x27;
+    END AS ValidationStatus
+FROM dbo.stage_trip_delta
+ORDER BY DateID, PickupTimeID;</code></pre>
+</section>
+<section id="step-6">
+<h2>STEP 5: CLEANING / CURATED STAGE</h2>
+<pre><code>-- ============================================================
+-- STEP 5: CLEANING / CURATED STAGE
+-- ============================================================
+-- Purpose:
+--   Create a clean staging table with only valid rows and standardized values.
+
+CREATE TABLE dbo.stage_trip_clean (
+    DateID             INT           NOT NULL,
+    PickupGeographyID  INT           NOT NULL,
+    PassengerCount     INT           NULL,
+    TotalAmount        DECIMAL(18,2) NOT NULL,
+    PaymentType        VARCHAR(50)   NOT NULL,
+    TripDistanceMiles  DECIMAL(18,2) NOT NULL
+);
+
+INSERT INTO dbo.stage_trip_clean (
+    DateID,
+    PickupGeographyID,
+    PassengerCount,
+    TotalAmount,
+    PaymentType,
+    TripDistanceMiles
+)
+SELECT
+    DateID,
+    PickupGeographyID,
+    PassengerCount,
+    TotalAmount,
+    CASE
+        WHEN PaymentType IS NULL OR LTRIM(RTRIM(PaymentType)) = &#x27;&#x27; THEN &#x27;Unknown&#x27;
+        ELSE PaymentType
+    END AS PaymentType,
+    TripDistanceMiles
+FROM dbo.stage_trip_delta
+WHERE DateID IS NOT NULL
+  AND PickupGeographyID IS NOT NULL
+  AND TotalAmount IS NOT NULL
+  AND TripDistanceMiles &gt; 0;
+
+SELECT COUNT(*) AS CleanRows
+FROM dbo.stage_trip_clean;</code></pre>
+</section>
+<section id="step-7">
+<h2>STEP 6: CREATE OLAP FACT SUMMARY TABLE</h2>
+<pre><code>-- ============================================================
+-- STEP 6: CREATE OLAP FACT SUMMARY TABLE
+-- ============================================================
+-- Purpose:
+--   Create a summarized fact table for analytics.
+--   Grain: one row per DateID and GeographyID.
+
+CREATE TABLE dbo.fact_trip_summary (
+    DateID        INT           NOT NULL,
+    GeographyID   INT           NOT NULL,
+    TotalTrips    INT           NOT NULL,
+    TotalRevenue  DECIMAL(18,2) NOT NULL,
+    AvgDistance   DECIMAL(18,2) NOT NULL
+);</code></pre>
+</section>
+<section id="step-8">
+<h2>STEP 7: LOAD OLAP FACT SUMMARY TABLE</h2>
+<pre><code>-- ============================================================
+-- STEP 7: LOAD OLAP FACT SUMMARY TABLE
+-- ============================================================
+-- Purpose:
+--   Aggregate clean trip records into an analytics-ready summary.
+
+INSERT INTO dbo.fact_trip_summary (
+    DateID,
+    GeographyID,
+    TotalTrips,
+    TotalRevenue,
+    AvgDistance
+)
+SELECT
+    DateID,
+    PickupGeographyID AS GeographyID,
+    COUNT(*) AS TotalTrips,
+    SUM(TotalAmount) AS TotalRevenue,
+    AVG(TripDistanceMiles) AS AvgDistance
+FROM dbo.stage_trip_clean
+GROUP BY DateID, PickupGeographyID;</code></pre>
+</section>
+<section id="step-9">
+<h2>STEP 8: OLAP RESULT PREVIEW</h2>
+<pre><code>-- ============================================================
+-- STEP 8: OLAP RESULT PREVIEW
+-- ============================================================
+-- Purpose:
+--   Confirm the summary table loaded successfully.
+
+SELECT TOP 10
+    DateID,
+    GeographyID,
+    TotalTrips,
+    TotalRevenue,
+    AvgDistance
+FROM dbo.fact_trip_summary
+ORDER BY TotalRevenue DESC;</code></pre>
+</section>
+<section id="step-10">
+<h2>STEP 9: BUSINESS QUERY WITH DIMENSION CONTEXT</h2>
+<pre><code>-- ============================================================
+-- STEP 9: BUSINESS QUERY WITH DIMENSION CONTEXT
+-- ============================================================
+-- Purpose:
+--   Join the OLAP summary to Geography to answer a business question.
+--   Business question: Which cities generated the highest revenue?
+
+SELECT TOP 20
+    g.City,
+    SUM(f.TotalTrips) AS TotalTrips,
+    SUM(f.TotalRevenue) AS Revenue,
+    AVG(f.AvgDistance) AS AvgDistance
+FROM dbo.fact_trip_summary AS f
+JOIN dbo.Geography AS g
+    ON f.GeographyID = g.GeographyID
+GROUP BY g.City
+ORDER BY Revenue DESC;</code></pre>
+</section>
+<section id="step-11">
+<h2>STEP 10: MERGE / INCREMENTAL LOAD PATTERN</h2>
+<pre><code>-- ============================================================
+-- STEP 10: MERGE / INCREMENTAL LOAD PATTERN
+-- ============================================================
+-- Purpose:
+--   Demonstrate how a repeated load can update existing summary rows
+--   and insert new rows when the source changes.
+
+MERGE INTO dbo.fact_trip_summary AS tgt
+USING (
+    SELECT
+        DateID,
+        PickupGeographyID AS GeographyID,
+        COUNT(*) AS TotalTrips,
+        SUM(TotalAmount) AS TotalRevenue,
+        AVG(TripDistanceMiles) AS AvgDistance
+    FROM dbo.stage_trip_clean
+    GROUP BY DateID, PickupGeographyID
+) AS src
+ON tgt.DateID = src.DateID
+AND tgt.GeographyID = src.GeographyID
+WHEN MATCHED THEN
+    UPDATE SET
+        tgt.TotalTrips = src.TotalTrips,
+        tgt.TotalRevenue = src.TotalRevenue,
+        tgt.AvgDistance = src.AvgDistance
+WHEN NOT MATCHED THEN
+    INSERT (DateID, GeographyID, TotalTrips, TotalRevenue, AvgDistance)
+    VALUES (src.DateID, src.GeographyID, src.TotalTrips, src.TotalRevenue, src.AvgDistance);</code></pre>
+</section>
+<section id="step-12">
+<h2>STEP 11: AUDIT CHECKS</h2>
+<pre><code>-- ============================================================
+-- STEP 11: AUDIT CHECKS
+-- ============================================================
+-- Purpose:
+--   Compare stage, clean, and fact outputs for simple operational validation.
+
+SELECT
+    COUNT(*) AS FactRows,
+    SUM(TotalTrips) AS TotalTripsRepresented,
+    SUM(TotalRevenue) AS TotalRevenue
+FROM dbo.fact_trip_summary;
+
+SELECT COUNT(*) AS RejectedRows_InvalidDistance
+FROM dbo.stage_trip_delta
+WHERE TripDistanceMiles &lt;= 0 OR TripDistanceMiles IS NULL;
+
+SELECT
+    (SELECT COUNT(*) FROM dbo.Trip) AS RawTripTableRows,
+    (SELECT COUNT(*) FROM dbo.stage_trip_delta) AS StageRowsLoaded,
+    (SELECT COUNT(*) FROM dbo.stage_trip_clean) AS CleanRowsLoaded,
+    (SELECT COUNT(*) FROM dbo.fact_trip_summary) AS OLAggregateRows;
+
+-- ============================================================
+-- LEARNING SUMMARY
+-- ============================================================
+-- OLTP-like source:
+--   dbo.Trip contains detailed trip records.
+--
+-- Staging:
+--   dbo.stage_trip_delta stores source-shaped rows.
+--
+-- Cleaning:
+--   dbo.stage_trip_clean keeps valid, standardized rows.
+--
+-- OLAP:
+--   dbo.fact_trip_summary stores analytics-ready aggregated data.
+--
+-- Incremental pattern:
+--   MERGE updates existing summary rows and inserts new summary rows.
+-- ============================================================</code></pre>
+</section>
+
+<section id="full-script">
+<h2>Complete Corrected Script</h2>
+<pre><code>-- ============================================================
+-- MICROSOFT FABRIC WAREHOUSE LAB
+-- End-to-End Data Engineering Demo: OLTP-like Sample Tables -&gt; OLAP Summary
+-- Pattern: Source profile -&gt; Stage -&gt; Validate -&gt; Clean -&gt; Fact summary -&gt; Business query -&gt; MERGE -&gt; Audit
+--
+-- Fabric compatibility notes:
+--   - Avoid CREATE TABLE AS SELECT for this beginner Warehouse lab.
+--   - Create tables explicitly, then INSERT SELECT.
+--   - Use VARCHAR instead of NVARCHAR.
+--   - Use TRY_CAST when moving from source/stage into curated structures.
+--   - Run in the Microsoft Fabric Warehouse sample, not a local SQL database.
+-- ============================================================
+
+-- ============================================================
+-- STEP 0: CLEAN START
+-- ============================================================
+DROP TABLE IF EXISTS dbo.fact_trip_summary;
+DROP TABLE IF EXISTS dbo.stage_trip_clean;
+DROP TABLE IF EXISTS dbo.stage_trip_delta;
+
+-- ============================================================
+-- STEP 1: SOURCE / OLTP-LIKE SAMPLE TABLE EXPLORATION
+-- ============================================================
+-- Purpose:
+--   Inspect the source table and confirm that the sample Warehouse contains data.
+
+SELECT TOP 10
+    MedallionID,
+    DateID,
+    PickupTimeID,
+    PickupGeographyID,
+    PassengerCount,
+    TripDistanceMiles,
+    TotalAmount,
+    PaymentType
+FROM dbo.Trip;
+
+SELECT COUNT(*) AS TotalRawRows
+FROM dbo.Trip;
+
+-- ============================================================
+-- STEP 2: CREATE STAGING TABLE
+-- ============================================================
+-- Purpose:
+--   Staging tables hold source-shaped data before cleaning and transformation.
+--   This lab creates an explicit table instead of CTAS for Fabric classroom clarity.
+
+CREATE TABLE dbo.stage_trip_delta (
+    MedallionID        VARCHAR(100)  NULL,
+    DateID             INT           NULL,
+    PickupTimeID       INT           NULL,
+    PickupGeographyID  INT           NULL,
+    PassengerCount     INT           NULL,
+    TotalAmount        DECIMAL(18,2) NULL,
+    PaymentType        VARCHAR(50)   NULL,
+    TripDistanceMiles  DECIMAL(18,2) NULL
+);
+
+-- ============================================================
+-- STEP 3: LOAD STAGING FROM SAMPLE WAREHOUSE TABLE
+-- ============================================================
+-- Purpose:
+--   Load a manageable subset from dbo.Trip into the staging table.
+--   TOP is used to keep classroom execution fast.
+
+INSERT INTO dbo.stage_trip_delta (
+    MedallionID,
+    DateID,
+    PickupTimeID,
+    PickupGeographyID,
+    PassengerCount,
+    TotalAmount,
+    PaymentType,
+    TripDistanceMiles
+)
+SELECT TOP 10000
+    CAST(MedallionID AS VARCHAR(100)) AS MedallionID,
+    TRY_CAST(DateID AS INT) AS DateID,
+    TRY_CAST(PickupTimeID AS INT) AS PickupTimeID,
+    TRY_CAST(PickupGeographyID AS INT) AS PickupGeographyID,
+    TRY_CAST(PassengerCount AS INT) AS PassengerCount,
+    TRY_CAST(TotalAmount AS DECIMAL(18,2)) AS TotalAmount,
+    CAST(PaymentType AS VARCHAR(50)) AS PaymentType,
+    TRY_CAST(TripDistanceMiles AS DECIMAL(18,2)) AS TripDistanceMiles
+FROM dbo.Trip
+WHERE DateID IS NOT NULL;
+
+SELECT COUNT(*) AS StageRows
+FROM dbo.stage_trip_delta;
+
+-- ============================================================
+-- STEP 4: VALIDATION / DATA QUALITY CHECKS
+-- ============================================================
+-- Purpose:
+--   Identify duplicates, missing values, and invalid business values before loading curated output.
+
+-- 4A: Possible duplicate operational grain check
+SELECT
+    MedallionID,
+    DateID,
+    PickupTimeID,
+    COUNT(*) AS DuplicateCount
+FROM dbo.stage_trip_delta
+GROUP BY MedallionID, DateID, PickupTimeID
+HAVING COUNT(*) &gt; 1
+ORDER BY DuplicateCount DESC;
+
+-- 4B: Missing or invalid value checks
+SELECT COUNT(*) AS MissingTotalAmountRows
+FROM dbo.stage_trip_delta
+WHERE TotalAmount IS NULL;
+
+SELECT COUNT(*) AS InvalidDistanceRows
+FROM dbo.stage_trip_delta
+WHERE TripDistanceMiles &lt;= 0 OR TripDistanceMiles IS NULL;
+
+SELECT COUNT(*) AS MissingGeographyRows
+FROM dbo.stage_trip_delta
+WHERE PickupGeographyID IS NULL;
+
+-- 4C: Row-level validation status sample
+SELECT TOP 100
+    MedallionID,
+    DateID,
+    PickupTimeID,
+    PickupGeographyID,
+    PassengerCount,
+    TotalAmount,
+    TripDistanceMiles,
+    CASE
+        WHEN DateID IS NULL THEN &#x27;Invalid DateID&#x27;
+        WHEN PickupGeographyID IS NULL THEN &#x27;Invalid GeographyID&#x27;
+        WHEN TotalAmount IS NULL THEN &#x27;Missing TotalAmount&#x27;
+        WHEN TripDistanceMiles &lt;= 0 OR TripDistanceMiles IS NULL THEN &#x27;Invalid TripDistanceMiles&#x27;
+        ELSE &#x27;Valid&#x27;
+    END AS ValidationStatus
+FROM dbo.stage_trip_delta
+ORDER BY DateID, PickupTimeID;
+
+-- ============================================================
+-- STEP 5: CLEANING / CURATED STAGE
+-- ============================================================
+-- Purpose:
+--   Create a clean staging table with only valid rows and standardized values.
+
+CREATE TABLE dbo.stage_trip_clean (
+    DateID             INT           NOT NULL,
+    PickupGeographyID  INT           NOT NULL,
+    PassengerCount     INT           NULL,
+    TotalAmount        DECIMAL(18,2) NOT NULL,
+    PaymentType        VARCHAR(50)   NOT NULL,
+    TripDistanceMiles  DECIMAL(18,2) NOT NULL
+);
+
+INSERT INTO dbo.stage_trip_clean (
+    DateID,
+    PickupGeographyID,
+    PassengerCount,
+    TotalAmount,
+    PaymentType,
+    TripDistanceMiles
+)
+SELECT
+    DateID,
+    PickupGeographyID,
+    PassengerCount,
+    TotalAmount,
+    CASE
+        WHEN PaymentType IS NULL OR LTRIM(RTRIM(PaymentType)) = &#x27;&#x27; THEN &#x27;Unknown&#x27;
+        ELSE PaymentType
+    END AS PaymentType,
+    TripDistanceMiles
+FROM dbo.stage_trip_delta
+WHERE DateID IS NOT NULL
+  AND PickupGeographyID IS NOT NULL
+  AND TotalAmount IS NOT NULL
+  AND TripDistanceMiles &gt; 0;
+
+SELECT COUNT(*) AS CleanRows
+FROM dbo.stage_trip_clean;
+
+-- ============================================================
+-- STEP 6: CREATE OLAP FACT SUMMARY TABLE
+-- ============================================================
+-- Purpose:
+--   Create a summarized fact table for analytics.
+--   Grain: one row per DateID and GeographyID.
+
+CREATE TABLE dbo.fact_trip_summary (
+    DateID        INT           NOT NULL,
+    GeographyID   INT           NOT NULL,
+    TotalTrips    INT           NOT NULL,
+    TotalRevenue  DECIMAL(18,2) NOT NULL,
+    AvgDistance   DECIMAL(18,2) NOT NULL
+);
+
+-- ============================================================
+-- STEP 7: LOAD OLAP FACT SUMMARY TABLE
+-- ============================================================
+-- Purpose:
+--   Aggregate clean trip records into an analytics-ready summary.
+
+INSERT INTO dbo.fact_trip_summary (
+    DateID,
+    GeographyID,
+    TotalTrips,
+    TotalRevenue,
+    AvgDistance
+)
+SELECT
+    DateID,
+    PickupGeographyID AS GeographyID,
+    COUNT(*) AS TotalTrips,
+    SUM(TotalAmount) AS TotalRevenue,
+    AVG(TripDistanceMiles) AS AvgDistance
+FROM dbo.stage_trip_clean
+GROUP BY DateID, PickupGeographyID;
+
+-- ============================================================
+-- STEP 8: OLAP RESULT PREVIEW
+-- ============================================================
+-- Purpose:
+--   Confirm the summary table loaded successfully.
+
+SELECT TOP 10
+    DateID,
+    GeographyID,
+    TotalTrips,
+    TotalRevenue,
+    AvgDistance
+FROM dbo.fact_trip_summary
+ORDER BY TotalRevenue DESC;
+
+-- ============================================================
+-- STEP 9: BUSINESS QUERY WITH DIMENSION CONTEXT
+-- ============================================================
+-- Purpose:
+--   Join the OLAP summary to Geography to answer a business question.
+--   Business question: Which cities generated the highest revenue?
+
+SELECT TOP 20
+    g.City,
+    SUM(f.TotalTrips) AS TotalTrips,
+    SUM(f.TotalRevenue) AS Revenue,
+    AVG(f.AvgDistance) AS AvgDistance
+FROM dbo.fact_trip_summary AS f
+JOIN dbo.Geography AS g
+    ON f.GeographyID = g.GeographyID
+GROUP BY g.City
+ORDER BY Revenue DESC;
+
+-- ============================================================
+-- STEP 10: MERGE / INCREMENTAL LOAD PATTERN
+-- ============================================================
+-- Purpose:
+--   Demonstrate how a repeated load can update existing summary rows
+--   and insert new rows when the source changes.
+
+MERGE INTO dbo.fact_trip_summary AS tgt
+USING (
+    SELECT
+        DateID,
+        PickupGeographyID AS GeographyID,
+        COUNT(*) AS TotalTrips,
+        SUM(TotalAmount) AS TotalRevenue,
+        AVG(TripDistanceMiles) AS AvgDistance
+    FROM dbo.stage_trip_clean
+    GROUP BY DateID, PickupGeographyID
+) AS src
+ON tgt.DateID = src.DateID
+AND tgt.GeographyID = src.GeographyID
+WHEN MATCHED THEN
+    UPDATE SET
+        tgt.TotalTrips = src.TotalTrips,
+        tgt.TotalRevenue = src.TotalRevenue,
+        tgt.AvgDistance = src.AvgDistance
+WHEN NOT MATCHED THEN
+    INSERT (DateID, GeographyID, TotalTrips, TotalRevenue, AvgDistance)
+    VALUES (src.DateID, src.GeographyID, src.TotalTrips, src.TotalRevenue, src.AvgDistance);
+
+-- ============================================================
+-- STEP 11: AUDIT CHECKS
+-- ============================================================
+-- Purpose:
+--   Compare stage, clean, and fact outputs for simple operational validation.
+
+SELECT
+    COUNT(*) AS FactRows,
+    SUM(TotalTrips) AS TotalTripsRepresented,
+    SUM(TotalRevenue) AS TotalRevenue
+FROM dbo.fact_trip_summary;
+
+SELECT COUNT(*) AS RejectedRows_InvalidDistance
+FROM dbo.stage_trip_delta
+WHERE TripDistanceMiles &lt;= 0 OR TripDistanceMiles IS NULL;
+
+SELECT
+    (SELECT COUNT(*) FROM dbo.Trip) AS RawTripTableRows,
+    (SELECT COUNT(*) FROM dbo.stage_trip_delta) AS StageRowsLoaded,
+    (SELECT COUNT(*) FROM dbo.stage_trip_clean) AS CleanRowsLoaded,
+    (SELECT COUNT(*) FROM dbo.fact_trip_summary) AS OLAggregateRows;
+
+-- ============================================================
+-- LEARNING SUMMARY
+-- ============================================================
+-- OLTP-like source:
+--   dbo.Trip contains detailed trip records.
+--
+-- Staging:
+--   dbo.stage_trip_delta stores source-shaped rows.
+--
+-- Cleaning:
+--   dbo.stage_trip_clean keeps valid, standardized rows.
+--
+-- OLAP:
+--   dbo.fact_trip_summary stores analytics-ready aggregated data.
+--
+-- Incremental pattern:
+--   MERGE updates existing summary rows and inserts new summary rows.
+-- ============================================================</code></pre>
+</section>
+</main>
+<footer>Classroom lab file for Microsoft Fabric Warehouse data engineering demo.</footer>
+</body></html>
