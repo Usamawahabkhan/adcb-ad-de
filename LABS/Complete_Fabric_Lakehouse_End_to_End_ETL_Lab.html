@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Complete Fabric Lakehouse ETL Lab</title>
+<style>
+body { font-family: Segoe UI, Arial, sans-serif; margin:0; background:#f6f8fb; color:#1f2937; line-height:1.6; }
+header { background:linear-gradient(135deg,#0078d4,#5c2d91); color:white; padding:42px 28px; text-align:center; }
+main { max-width:1200px; margin:auto; padding:24px; }
+section { background:white; border:1px solid #d7dee8; border-radius:14px; padding:22px; margin:16px 0; box-shadow:0 2px 8px rgba(15,23,42,.05); }
+h2 { color:#123047; border-bottom:2px solid #e5f2fb; padding-bottom:8px; }
+pre { background:#0f172a; color:#e5e7eb; padding:18px; border-radius:12px; overflow:auto; font-family:Consolas, monospace; font-size:.85rem; }
+code { font-family:Consolas, monospace; }
+.success { background:#eef8ef; border-left:5px solid #21a366; padding:14px; border-radius:8px; }
+.warning { background:#fff0ed; border-left:5px solid #d83b01; padding:14px; border-radius:8px; }
+table { width:100%; border-collapse:collapse; }
+th,td { border:1px solid #d7dee8; padding:10px; text-align:left; vertical-align:top; }
+th { background:#eef6fc; }
+</style>
+</head>
+<body>
+<header>
+<h1>Complete Step-by-Step Lab: End-to-End ETL in Microsoft Fabric Lakehouse</h1>
+<p>Fabric Notebook + Lakehouse + JSON Lines + Delta Tables + Validation + MERGE + Gold Reporting Table</p>
+</header>
+<main>
+<section>
+<h2>Lab Overview</h2>
+<p>This lab gives students a complete end-to-end Lakehouse ETL flow in Microsoft Fabric. The lab uses a Fabric Notebook attached to a Lakehouse. Students create sample JSON Lines data, write Bronze/Silver/Gold Delta tables, handle bad records, and create reporting output.</p>
+<div class="success"><strong>Files included:</strong> A ready-to-import notebook file and a sample JSON Lines source file.</div>
+<table>
+<thead><tr><th>Item</th><th>Value</th></tr></thead>
+<tbody>
+<tr><td>Primary Fabric items</td><td>Lakehouse, Notebook, optional Data Pipeline</td></tr>
+<tr><td>Estimated duration</td><td>90 minutes</td></tr>
+<tr><td>Pattern</td><td>Bronze → Silver → Gold</td></tr>
+<tr><td>Source format</td><td>JSON Lines / NDJSON</td></tr>
+<tr><td>Storage format</td><td>Delta tables</td></tr>
+</tbody>
+</table>
+</section>
+<section>
+<h2>End-to-End Flow</h2>
+<pre><code>JSON Lines source file
+      ↓
+Bronze Delta table: bronze_retail_sales
+      ↓
+Validation rules
+      ├── Invalid rows → silver_retail_sales_errors
+      ↓
+Silver curated Delta table: silver_retail_sales
+      ↓
+Delta MERGE / upsert second batch
+      ↓
+Gold summary Delta table: gold_daily_sales_summary
+      ↓
+Spark SQL checks / Power BI-ready output</code></pre>
+</section>
+<section>
+<h2>Sample JSON Lines data</h2>
+<pre><code>{&quot;BatchID&quot;:8001,&quot;SourceSystem&quot;:&quot;WEB&quot;,&quot;OrderID&quot;:4001,&quot;OrderLineID&quot;:1,&quot;OrderDate&quot;:&quot;2024-03-01&quot;,&quot;CustomerID&quot;:301,&quot;CustomerName&quot;:&quot;James Wilson&quot;,&quot;ProductID&quot;:701,&quot;ProductName&quot;:&quot;Wireless Headphones&quot;,&quot;CategoryName&quot;:&quot;Electronics&quot;,&quot;StoreID&quot;:10,&quot;StoreName&quot;:&quot;NYC Flagship&quot;,&quot;Quantity&quot;:2,&quot;UnitPrice&quot;:89.99,&quot;DiscountPct&quot;:0.00,&quot;LoadDate&quot;:&quot;2024-03-02&quot;}
+{&quot;BatchID&quot;:8001,&quot;SourceSystem&quot;:&quot;APP&quot;,&quot;OrderID&quot;:4002,&quot;OrderLineID&quot;:1,&quot;OrderDate&quot;:&quot;2024-03-02&quot;,&quot;CustomerID&quot;:302,&quot;CustomerName&quot;:&quot;Sophia Martinez&quot;,&quot;ProductID&quot;:702,&quot;ProductName&quot;:&quot;Smart Watch&quot;,&quot;CategoryName&quot;:&quot;Electronics&quot;,&quot;StoreID&quot;:20,&quot;StoreName&quot;:&quot;LA Megastore&quot;,&quot;Quantity&quot;:1,&quot;UnitPrice&quot;:249.99,&quot;DiscountPct&quot;:10.00,&quot;LoadDate&quot;:&quot;2024-03-03&quot;}
+{&quot;BatchID&quot;:8001,&quot;SourceSystem&quot;:&quot;POS&quot;,&quot;OrderID&quot;:4003,&quot;OrderLineID&quot;:1,&quot;OrderDate&quot;:&quot;2024-03-03&quot;,&quot;CustomerID&quot;:303,&quot;CustomerName&quot;:&quot;Ethan Brown&quot;,&quot;ProductID&quot;:704,&quot;ProductName&quot;:&quot;Running Jacket&quot;,&quot;CategoryName&quot;:&quot;Clothing&quot;,&quot;StoreID&quot;:30,&quot;StoreName&quot;:&quot;Chicago Downtown&quot;,&quot;Quantity&quot;:2,&quot;UnitPrice&quot;:79.99,&quot;DiscountPct&quot;:5.00,&quot;LoadDate&quot;:&quot;2024-03-04&quot;}
+{&quot;BatchID&quot;:8001,&quot;SourceSystem&quot;:&quot;WEB&quot;,&quot;OrderID&quot;:4004,&quot;OrderLineID&quot;:1,&quot;OrderDate&quot;:&quot;2024-03-04&quot;,&quot;CustomerID&quot;:304,&quot;CustomerName&quot;:&quot;Invalid Quantity Example&quot;,&quot;ProductID&quot;:703,&quot;ProductName&quot;:&quot;Bluetooth Speaker&quot;,&quot;CategoryName&quot;:&quot;Electronics&quot;,&quot;StoreID&quot;:10,&quot;StoreName&quot;:&quot;NYC Flagship&quot;,&quot;Quantity&quot;:-1,&quot;UnitPrice&quot;:59.99,&quot;DiscountPct&quot;:0.00,&quot;LoadDate&quot;:&quot;2024-03-05&quot;}
+{&quot;BatchID&quot;:8001,&quot;SourceSystem&quot;:&quot;APP&quot;,&quot;OrderID&quot;:4005,&quot;OrderLineID&quot;:1,&quot;OrderDate&quot;:&quot;2024-03-05&quot;,&quot;CustomerID&quot;:305,&quot;CustomerName&quot;:&quot;Invalid Discount Example&quot;,&quot;ProductID&quot;:705,&quot;ProductName&quot;:&quot;Casual Jeans&quot;,&quot;CategoryName&quot;:&quot;Clothing&quot;,&quot;StoreID&quot;:40,&quot;StoreName&quot;:&quot;Houston Mall&quot;,&quot;Quantity&quot;:1,&quot;UnitPrice&quot;:49.99,&quot;DiscountPct&quot;:120.00,&quot;LoadDate&quot;:&quot;2024-03-06&quot;}
+</code></pre>
+</section>
+<section><h2>Notebook Cell 1: Markdown</h2><pre><code># Lab: End-to-End ETL in Microsoft Fabric Lakehouse
+
+**Scenario:** Load sample JSON Lines retail sales data into a Fabric Lakehouse, transform the data with a Fabric Notebook, write Delta tables, handle bad data, perform a Delta MERGE/upsert, and create a Gold reporting table.
+
+**Main flow:**
+
+`JSON Lines file → Bronze Delta table → validation → Silver curated table + rejected rows → MERGE second batch → Gold daily summary`
+</code></pre></section><section><h2>Notebook Cell 2: Markdown</h2><pre><code>## Step 0: Attach this notebook to a Lakehouse
+
+Before running the notebook:
+
+1. Create or open a Microsoft Fabric workspace.
+2. Create a Lakehouse, for example: `lh_retail_etl_lab`.
+3. Open this notebook.
+4. Attach the notebook to the Lakehouse from the Lakehouse selector.
+5. Run the cells in order.
+
+This lab uses relative Lakehouse paths such as `/lakehouse/default/Files/...`, which work when the notebook is attached to a default Lakehouse.
+</code></pre></section><section><h2>Notebook Cell 3: Markdown</h2><pre><code>## Step 1: Parameters and imports
+
+This cell defines folders, file names, and table names used throughout the lab.
+</code></pre></section><section><h2>Notebook Cell 4: Code</h2><pre><code>from pyspark.sql import functions as F
+from pyspark.sql.types import *
+from delta.tables import DeltaTable
+import os
+
+# Lakehouse file paths
+raw_folder = &quot;/lakehouse/default/Files/retail_etl_lab/bronze&quot;
+raw_file = f&quot;{raw_folder}/retail_sales_sample_jsonl.json&quot;
+
+# Lakehouse Delta table names
+bronze_table = &quot;bronze_retail_sales&quot;
+silver_table = &quot;silver_retail_sales&quot;
+error_table = &quot;silver_retail_sales_errors&quot;
+gold_table = &quot;gold_daily_sales_summary&quot;
+
+print(&quot;Raw folder:&quot;, raw_folder)
+print(&quot;Raw file:&quot;, raw_file)
+print(&quot;Bronze table:&quot;, bronze_table)
+print(&quot;Silver table:&quot;, silver_table)
+print(&quot;Error table:&quot;, error_table)
+print(&quot;Gold table:&quot;, gold_table)
+</code></pre></section><section><h2>Notebook Cell 5: Markdown</h2><pre><code>## Step 2: Create sample JSON Lines data in Lakehouse Files
+
+The source file uses **JSON Lines / NDJSON** format. Each line is one JSON object. This is easier for Spark and pipeline ingestion than a JSON array file.
+</code></pre></section><section><h2>Notebook Cell 6: Code</h2><pre><code>os.makedirs(raw_folder, exist_ok=True)
+
+sample_jsonl = r&quot;&quot;&quot;{&quot;BatchID&quot;:8001,&quot;SourceSystem&quot;:&quot;WEB&quot;,&quot;OrderID&quot;:4001,&quot;OrderLineID&quot;:1,&quot;OrderDate&quot;:&quot;2024-03-01&quot;,&quot;CustomerID&quot;:301,&quot;CustomerName&quot;:&quot;James Wilson&quot;,&quot;ProductID&quot;:701,&quot;ProductName&quot;:&quot;Wireless Headphones&quot;,&quot;CategoryName&quot;:&quot;Electronics&quot;,&quot;StoreID&quot;:10,&quot;StoreName&quot;:&quot;NYC Flagship&quot;,&quot;Quantity&quot;:2,&quot;UnitPrice&quot;:89.99,&quot;DiscountPct&quot;:0.00,&quot;LoadDate&quot;:&quot;2024-03-02&quot;}
+{&quot;BatchID&quot;:8001,&quot;SourceSystem&quot;:&quot;APP&quot;,&quot;OrderID&quot;:4002,&quot;OrderLineID&quot;:1,&quot;OrderDate&quot;:&quot;2024-03-02&quot;,&quot;CustomerID&quot;:302,&quot;CustomerName&quot;:&quot;Sophia Martinez&quot;,&quot;ProductID&quot;:702,&quot;ProductName&quot;:&quot;Smart Watch&quot;,&quot;CategoryName&quot;:&quot;Electronics&quot;,&quot;StoreID&quot;:20,&quot;StoreName&quot;:&quot;LA Megastore&quot;,&quot;Quantity&quot;:1,&quot;UnitPrice&quot;:249.99,&quot;DiscountPct&quot;:10.00,&quot;LoadDate&quot;:&quot;2024-03-03&quot;}
+{&quot;BatchID&quot;:8001,&quot;SourceSystem&quot;:&quot;POS&quot;,&quot;OrderID&quot;:4003,&quot;OrderLineID&quot;:1,&quot;OrderDate&quot;:&quot;2024-03-03&quot;,&quot;CustomerID&quot;:303,&quot;CustomerName&quot;:&quot;Ethan Brown&quot;,&quot;ProductID&quot;:704,&quot;ProductName&quot;:&quot;Running Jacket&quot;,&quot;CategoryName&quot;:&quot;Clothing&quot;,&quot;StoreID&quot;:30,&quot;StoreName&quot;:&quot;Chicago Downtown&quot;,&quot;Quantity&quot;:2,&quot;UnitPrice&quot;:79.99,&quot;DiscountPct&quot;:5.00,&quot;LoadDate&quot;:&quot;2024-03-04&quot;}
+{&quot;BatchID&quot;:8001,&quot;SourceSystem&quot;:&quot;WEB&quot;,&quot;OrderID&quot;:4004,&quot;OrderLineID&quot;:1,&quot;OrderDate&quot;:&quot;2024-03-04&quot;,&quot;CustomerID&quot;:304,&quot;CustomerName&quot;:&quot;Invalid Quantity Example&quot;,&quot;ProductID&quot;:703,&quot;ProductName&quot;:&quot;Bluetooth Speaker&quot;,&quot;CategoryName&quot;:&quot;Electronics&quot;,&quot;StoreID&quot;:10,&quot;StoreName&quot;:&quot;NYC Flagship&quot;,&quot;Quantity&quot;:-1,&quot;UnitPrice&quot;:59.99,&quot;DiscountPct&quot;:0.00,&quot;LoadDate&quot;:&quot;2024-03-05&quot;}
+{&quot;BatchID&quot;:8001,&quot;SourceSystem&quot;:&quot;APP&quot;,&quot;OrderID&quot;:4005,&quot;OrderLineID&quot;:1,&quot;OrderDate&quot;:&quot;2024-03-05&quot;,&quot;CustomerID&quot;:305,&quot;CustomerName&quot;:&quot;Invalid Discount Example&quot;,&quot;ProductID&quot;:705,&quot;ProductName&quot;:&quot;Casual Jeans&quot;,&quot;CategoryName&quot;:&quot;Clothing&quot;,&quot;StoreID&quot;:40,&quot;StoreName&quot;:&quot;Houston Mall&quot;,&quot;Quantity&quot;:1,&quot;UnitPrice&quot;:49.99,&quot;DiscountPct&quot;:120.00,&quot;LoadDate&quot;:&quot;2024-03-06&quot;}
+&quot;&quot;&quot;
+
+with open(raw_file, &quot;w&quot;, encoding=&quot;utf-8&quot;) as f:
+    f.write(sample_jsonl)
+
+print(f&quot;Created sample JSON Lines file: {raw_file}&quot;)
+</code></pre></section><section><h2>Notebook Cell 7: Markdown</h2><pre><code>## Step 3: Read the JSON Lines file into a DataFrame
+
+This is the **Extract** step. The notebook reads raw JSON data from the Lakehouse Files area.
+</code></pre></section><section><h2>Notebook Cell 8: Code</h2><pre><code>raw_df = spark.read.json(raw_file)
+
+display(raw_df)
+raw_df.printSchema()
+</code></pre></section><section><h2>Notebook Cell 9: Markdown</h2><pre><code>## Step 4: Write raw data to a Bronze Delta table
+
+The Bronze table keeps the raw source-shaped data with minimal transformation. This is useful for replay, audit, and troubleshooting.
+</code></pre></section><section><h2>Notebook Cell 10: Code</h2><pre><code>raw_df.write.format(&quot;delta&quot;).mode(&quot;overwrite&quot;).saveAsTable(bronze_table)
+
+print(f&quot;Bronze table created: {bronze_table}&quot;)
+display(spark.table(bronze_table))
+</code></pre></section><section><h2>Notebook Cell 11: Markdown</h2><pre><code>## Step 5: Validate staged/Bronze data
+
+This is the first quality gate. Rows are labeled as valid or invalid before moving into Silver.
+</code></pre></section><section><h2>Notebook Cell 12: Code</h2><pre><code>bronze_df = spark.table(bronze_table)
+
+validated_df = (
+    bronze_df
+    .withColumn(
+        &quot;ValidationStatus&quot;,
+        F.when(F.col(&quot;Quantity&quot;) &lt;= 0, F.lit(&quot;Invalid Quantity&quot;))
+         .when(F.col(&quot;UnitPrice&quot;) &lt;= 0, F.lit(&quot;Invalid Unit Price&quot;))
+         .when((F.col(&quot;DiscountPct&quot;) &lt; 0) | (F.col(&quot;DiscountPct&quot;) &gt; 100), F.lit(&quot;Invalid Discount Percent&quot;))
+         .when(F.col(&quot;CustomerID&quot;) &lt;= 0, F.lit(&quot;Invalid CustomerID&quot;))
+         .when(F.col(&quot;ProductID&quot;) &lt;= 0, F.lit(&quot;Invalid ProductID&quot;))
+         .when(F.col(&quot;StoreID&quot;) &lt;= 0, F.lit(&quot;Invalid StoreID&quot;))
+         .otherwise(F.lit(&quot;Valid&quot;))
+    )
+)
+
+display(validated_df.orderBy(&quot;OrderID&quot;, &quot;OrderLineID&quot;))
+</code></pre></section><section><h2>Notebook Cell 13: Markdown</h2><pre><code>## Step 6: Split valid and invalid rows
+
+Invalid rows go to an error table. Valid rows continue to the curated Silver table.
+</code></pre></section><section><h2>Notebook Cell 14: Code</h2><pre><code>valid_df = validated_df.filter(F.col(&quot;ValidationStatus&quot;) == &quot;Valid&quot;)
+invalid_df = (
+    validated_df
+    .filter(F.col(&quot;ValidationStatus&quot;) != &quot;Valid&quot;)
+    .select(
+        &quot;BatchID&quot;,
+        &quot;SourceSystem&quot;,
+        &quot;OrderID&quot;,
+        &quot;OrderLineID&quot;,
+        F.col(&quot;ValidationStatus&quot;).alias(&quot;ErrorReason&quot;),
+        F.current_date().alias(&quot;ErrorCapturedDate&quot;)
+    )
+)
+
+invalid_df.write.format(&quot;delta&quot;).mode(&quot;overwrite&quot;).saveAsTable(error_table)
+
+print(f&quot;Invalid rows written to: {error_table}&quot;)
+display(spark.table(error_table))
+</code></pre></section><section><h2>Notebook Cell 15: Markdown</h2><pre><code>## Step 7: Transform valid rows into Silver curated data
+
+The Silver table adds business measures such as Gross Sales, Discount Amount, and Net Sales.
+</code></pre></section><section><h2>Notebook Cell 16: Code</h2><pre><code>silver_df = (
+    valid_df
+    .withColumn(&quot;GrossSalesAmount&quot;, F.round(F.col(&quot;Quantity&quot;) * F.col(&quot;UnitPrice&quot;), 2))
+    .withColumn(&quot;DiscountAmount&quot;, F.round(F.col(&quot;Quantity&quot;) * F.col(&quot;UnitPrice&quot;) * (F.col(&quot;DiscountPct&quot;) / 100), 2))
+    .withColumn(&quot;NetSalesAmount&quot;, F.round(F.col(&quot;Quantity&quot;) * F.col(&quot;UnitPrice&quot;) * (1 - F.col(&quot;DiscountPct&quot;) / 100), 2))
+    .drop(&quot;ValidationStatus&quot;)
+)
+
+silver_df.write.format(&quot;delta&quot;).mode(&quot;overwrite&quot;).saveAsTable(silver_table)
+
+print(f&quot;Silver table created: {silver_table}&quot;)
+display(spark.table(silver_table).orderBy(&quot;OrderID&quot;, &quot;OrderLineID&quot;))
+</code></pre></section><section><h2>Notebook Cell 17: Markdown</h2><pre><code>## Step 8: Simulate a second batch and MERGE into Silver
+
+This demonstrates an upsert:
+
+- Order `4002` is updated with a new quantity.
+- Order `4006` is inserted as a new row.
+</code></pre></section><section><h2>Notebook Cell 18: Code</h2><pre><code>second_batch_data = [
+    (8002, &quot;APP&quot;, 4002, 1, &quot;2024-03-02&quot;, 302, &quot;Sophia Martinez&quot;, 702, &quot;Smart Watch&quot;, &quot;Electronics&quot;, 20, &quot;LA Megastore&quot;, 2, 249.99, 10.00, &quot;2024-03-10&quot;),
+    (8002, &quot;POS&quot;, 4006, 1, &quot;2024-03-10&quot;, 306, &quot;New Customer&quot;, 706, &quot;Running Shoes&quot;, &quot;Sports&quot;, 50, &quot;Miami Beach&quot;, 1, 99.99, 0.00, &quot;2024-03-11&quot;)
+]
+
+schema = StructType([
+    StructField(&quot;BatchID&quot;, IntegerType(), False),
+    StructField(&quot;SourceSystem&quot;, StringType(), False),
+    StructField(&quot;OrderID&quot;, IntegerType(), False),
+    StructField(&quot;OrderLineID&quot;, IntegerType(), False),
+    StructField(&quot;OrderDate&quot;, StringType(), False),
+    StructField(&quot;CustomerID&quot;, IntegerType(), False),
+    StructField(&quot;CustomerName&quot;, StringType(), False),
+    StructField(&quot;ProductID&quot;, IntegerType(), False),
+    StructField(&quot;ProductName&quot;, StringType(), False),
+    StructField(&quot;CategoryName&quot;, StringType(), False),
+    StructField(&quot;StoreID&quot;, IntegerType(), False),
+    StructField(&quot;StoreName&quot;, StringType(), False),
+    StructField(&quot;Quantity&quot;, IntegerType(), False),
+    StructField(&quot;UnitPrice&quot;, DoubleType(), False),
+    StructField(&quot;DiscountPct&quot;, DoubleType(), False),
+    StructField(&quot;LoadDate&quot;, StringType(), False)
+])
+
+updates_df = spark.createDataFrame(second_batch_data, schema)
+updates_df = (
+    updates_df
+    .withColumn(&quot;OrderDate&quot;, F.to_date(&quot;OrderDate&quot;))
+    .withColumn(&quot;LoadDate&quot;, F.to_date(&quot;LoadDate&quot;))
+    .withColumn(&quot;UnitPrice&quot;, F.col(&quot;UnitPrice&quot;).cast(&quot;decimal(10,2)&quot;))
+    .withColumn(&quot;DiscountPct&quot;, F.col(&quot;DiscountPct&quot;).cast(&quot;decimal(5,2)&quot;))
+    .withColumn(&quot;GrossSalesAmount&quot;, F.round(F.col(&quot;Quantity&quot;) * F.col(&quot;UnitPrice&quot;), 2))
+    .withColumn(&quot;DiscountAmount&quot;, F.round(F.col(&quot;Quantity&quot;) * F.col(&quot;UnitPrice&quot;) * (F.col(&quot;DiscountPct&quot;) / 100), 2))
+    .withColumn(&quot;NetSalesAmount&quot;, F.round(F.col(&quot;Quantity&quot;) * F.col(&quot;UnitPrice&quot;) * (1 - F.col(&quot;DiscountPct&quot;) / 100), 2))
+)
+
+display(updates_df)
+</code></pre></section><section><h2>Notebook Cell 19: Code</h2><pre><code>target = DeltaTable.forName(spark, silver_table)
+
+(
+    target.alias(&quot;t&quot;)
+    .merge(
+        updates_df.alias(&quot;s&quot;),
+        &quot;t.OrderID = s.OrderID AND t.OrderLineID = s.OrderLineID&quot;
+    )
+    .whenMatchedUpdate(set={
+        &quot;BatchID&quot;: &quot;s.BatchID&quot;,
+        &quot;SourceSystem&quot;: &quot;s.SourceSystem&quot;,
+        &quot;OrderDate&quot;: &quot;s.OrderDate&quot;,
+        &quot;CustomerID&quot;: &quot;s.CustomerID&quot;,
+        &quot;CustomerName&quot;: &quot;s.CustomerName&quot;,
+        &quot;ProductID&quot;: &quot;s.ProductID&quot;,
+        &quot;ProductName&quot;: &quot;s.ProductName&quot;,
+        &quot;CategoryName&quot;: &quot;s.CategoryName&quot;,
+        &quot;StoreID&quot;: &quot;s.StoreID&quot;,
+        &quot;StoreName&quot;: &quot;s.StoreName&quot;,
+        &quot;Quantity&quot;: &quot;s.Quantity&quot;,
+        &quot;UnitPrice&quot;: &quot;s.UnitPrice&quot;,
+        &quot;DiscountPct&quot;: &quot;s.DiscountPct&quot;,
+        &quot;LoadDate&quot;: &quot;s.LoadDate&quot;,
+        &quot;GrossSalesAmount&quot;: &quot;s.GrossSalesAmount&quot;,
+        &quot;DiscountAmount&quot;: &quot;s.DiscountAmount&quot;,
+        &quot;NetSalesAmount&quot;: &quot;s.NetSalesAmount&quot;
+    })
+    .whenNotMatchedInsertAll()
+    .execute()
+)
+
+print(&quot;MERGE completed.&quot;)
+display(spark.table(silver_table).orderBy(&quot;OrderID&quot;, &quot;OrderLineID&quot;))
+</code></pre></section><section><h2>Notebook Cell 20: Markdown</h2><pre><code>## Step 9: Create a Gold daily sales summary table
+
+Gold tables are reporting-ready outputs. This table aggregates daily sales by category and store.
+</code></pre></section><section><h2>Notebook Cell 21: Code</h2><pre><code>gold_df = (
+    spark.table(silver_table)
+    .groupBy(&quot;OrderDate&quot;, &quot;CategoryName&quot;, &quot;StoreName&quot;)
+    .agg(
+        F.countDistinct(&quot;OrderID&quot;).alias(&quot;TotalOrders&quot;),
+        F.sum(&quot;Quantity&quot;).alias(&quot;TotalUnits&quot;),
+        F.round(F.sum(&quot;GrossSalesAmount&quot;), 2).alias(&quot;GrossRevenue&quot;),
+        F.round(F.sum(&quot;DiscountAmount&quot;), 2).alias(&quot;TotalDiscount&quot;),
+        F.round(F.sum(&quot;NetSalesAmount&quot;), 2).alias(&quot;NetRevenue&quot;)
+    )
+)
+
+gold_df.write.format(&quot;delta&quot;).mode(&quot;overwrite&quot;).saveAsTable(gold_table)
+
+print(f&quot;Gold table created: {gold_table}&quot;)
+display(spark.table(gold_table).orderBy(&quot;OrderDate&quot;, &quot;CategoryName&quot;, &quot;StoreName&quot;))
+</code></pre></section><section><h2>Notebook Cell 22: Markdown</h2><pre><code>## Step 10: SQL checks inside the notebook
+
+Fabric notebooks can run Spark SQL using `%%sql` cells.
+</code></pre></section><section><h2>Notebook Cell 23: Code</h2><pre><code># Python check
+print(&quot;Bronze rows:&quot;, spark.table(bronze_table).count())
+print(&quot;Silver rows:&quot;, spark.table(silver_table).count())
+print(&quot;Error rows:&quot;, spark.table(error_table).count())
+print(&quot;Gold rows:&quot;, spark.table(gold_table).count())
+</code></pre></section><section><h2>Notebook Cell 24: Code</h2><pre><code>%%sql
+SELECT CategoryName, SUM(NetSalesAmount) AS NetRevenue
+FROM silver_retail_sales
+GROUP BY CategoryName
+ORDER BY NetRevenue DESC
+</code></pre></section><section><h2>Notebook Cell 25: Markdown</h2><pre><code>## Step 11: Optional pipeline orchestration
+
+After the notebook works, create a Fabric Data Pipeline:
+
+1. Add a Notebook activity.
+2. Select this notebook.
+3. Attach the Lakehouse.
+4. Run the pipeline.
+5. Monitor the notebook activity output.
+
+For a larger production pattern, use one pipeline for ingestion and one notebook for transformation, then schedule the pipeline.
+</code></pre></section><section><h2>Notebook Cell 26: Markdown</h2><pre><code>## Learning summary
+
+You completed an end-to-end Lakehouse ETL flow:
+
+- Created sample JSON Lines source data.
+- Loaded data into Bronze Delta table.
+- Validated data quality.
+- Stored bad rows in an error table.
+- Transformed valid rows into Silver curated data.
+- Used Delta MERGE for upsert logic.
+- Created a Gold reporting table.
+- Queried the output with Spark SQL.
+</code></pre></section>
+<section>
+<h2>Pipeline option</h2>
+<p>After the notebook runs successfully, create a Fabric Data Pipeline with a Notebook activity. Select this notebook, attach the Lakehouse, and schedule or run the pipeline manually.</p>
+<div class="warning"><strong>Tip:</strong> If students are new to Fabric, run the notebook manually first. Then automate it from a pipeline.</div>
+</section>
+</main>
+</body>
+</html>

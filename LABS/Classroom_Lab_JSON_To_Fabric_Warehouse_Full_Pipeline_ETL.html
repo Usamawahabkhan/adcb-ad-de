@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fabric Lab: Load JSON to Warehouse with SQL and Pipeline</title>
+<style>
+:root { --blue:#0078d4; --purple:#5c2d91; --dark:#123047; --bg:#f6f8fb; --panel:#fff; --border:#d7dee8; --code:#0f172a; --codetext:#e5e7eb; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:"Segoe UI", Arial, sans-serif; background:var(--bg); color:#1f2937; line-height:1.6; }
+header { background:linear-gradient(135deg,var(--blue),var(--purple)); color:white; padding:44px 28px; text-align:center; }
+header h1 { margin:0; font-size:2.2rem; }
+header p { max-width:980px; margin:12px auto 0; font-size:1.05rem; }
+main { max-width:1220px; margin:auto; padding:26px; }
+section { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:24px; margin:18px 0; box-shadow:0 2px 8px rgba(15,23,42,.05); }
+h2 { color:var(--dark); margin-top:0; border-bottom:2px solid #e5f2fb; padding-bottom:8px; }
+h3 { color:#23445f; }
+.badge { display:inline-block; background:#eef6fc; color:#123047; border:1px solid #c7e3f7; border-radius:999px; padding:4px 10px; margin:4px; font-weight:600; }
+.success { background:#eef8ef; border-left:5px solid #21a366; padding:14px 16px; border-radius:8px; margin:14px 0; }
+.warning { background:#fff0ed; border-left:5px solid #d83b01; padding:14px 16px; border-radius:8px; margin:14px 0; }
+.note { background:#fff8df; border-left:5px solid #f2c94c; padding:14px 16px; border-radius:8px; margin:14px 0; }
+table { width:100%; border-collapse:collapse; margin:14px 0; }
+th,td { border:1px solid var(--border); padding:10px 12px; text-align:left; vertical-align:top; }
+th { background:#eef6fc; color:var(--dark); }
+.schema { background:#f8fafc; border:1px dashed #9fb3c8; border-radius:12px; padding:16px; font-family:Consolas,"Courier New",monospace; white-space:pre; overflow-x:auto; }
+pre { background:var(--code); color:var(--codetext); padding:18px; border-radius:12px; overflow:auto; white-space:pre; font-family:Consolas,"Courier New",monospace; font-size:.84rem; line-height:1.45; border:1px solid #263145; }
+code { font-family:Consolas,"Courier New",monospace; }
+a { color:var(--blue); text-decoration:none; } a:hover { text-decoration:underline; }
+footer { text-align:center; color:#5b6472; padding:30px; }
+@media print { body{background:white} section{box-shadow:none; page-break-inside:avoid} pre{white-space:pre-wrap} header{print-color-adjust:exact;-webkit-print-color-adjust:exact} }
+</style>
+</head>
+<body>
+<header>
+<h1>Fabric Lab: Load Sample JSON to Warehouse</h1>
+<p>Full Pipeline ETL/ELT Experience: JSON → Stage → Validate → Errors → Curated Warehouse Table → Gold Summary → Reporting View</p>
+<p><span class="badge">Microsoft Fabric</span><span class="badge">Data Pipeline</span><span class="badge">Copy Activity</span><span class="badge">Script Activity</span><span class="badge">Warehouse</span></p>
+</header>
+<main>
+<section id="info">
+<h2>1. Lab Information</h2>
+<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>
+<tr><td>Lab title</td><td>Load JSON Data into Fabric Warehouse using Pipeline and SQL</td></tr>
+<tr><td>Estimated duration</td><td>90 minutes</td></tr>
+<tr><td>Modality</td><td>Hands-on classroom lab</td></tr>
+<tr><td>Primary Fabric items</td><td>Warehouse, Data Pipeline, Copy activity, Script activity, SQL Query Editor</td></tr>
+</tbody></table>
+<div class="success"><strong>Purpose:</strong> This lab gives students a complete end-to-end warehouse loading experience using the same warehouse pattern used earlier, but now with sample JSON and Fabric Pipeline orchestration.</div>
+</section>
+
+<section id="objectives">
+<h2>2. Learning Objectives</h2>
+<ul>
+<li>Understand two ways to load data into a Fabric Warehouse: SQL script and Copy activity.</li>
+<li>Create a warehouse stage table for JSON-shaped retail sales data.</li>
+<li>Use Fabric Pipeline activities to orchestrate loading and transformation.</li>
+<li>Validate staged data before loading curated tables.</li>
+<li>Capture invalid records in an error table.</li>
+<li>Use MERGE to load valid data into a curated warehouse table.</li>
+<li>Create a Gold summary table and a reporting view for analytics.</li>
+</ul>
+</section>
+
+<section id="definitions">
+<h2>3. Small Definitions</h2>
+<table><thead><tr><th>Term</th><th>Simple definition</th></tr></thead><tbody>
+<tr><td><strong>JSON</strong></td><td>A semi-structured text format commonly used by APIs and applications.</td></tr>
+<tr><td><strong>Copy activity</strong></td><td>A Fabric Pipeline activity used to move data from a source to a destination.</td></tr>
+<tr><td><strong>Script activity</strong></td><td>A Fabric Pipeline activity used to run SQL against Fabric Warehouse.</td></tr>
+<tr><td><strong>Stage table</strong></td><td>A landing table where raw or incoming rows are loaded before validation.</td></tr>
+<tr><td><strong>Validation</strong></td><td>SQL checks that identify bad rows before rows enter curated output.</td></tr>
+<tr><td><strong>Curated table</strong></td><td>A clean table that stores validated and transformed business data.</td></tr>
+<tr><td><strong>Gold table</strong></td><td>A reporting-ready summary table used by analysts or Power BI.</td></tr>
+<tr><td><strong>MERGE</strong></td><td>A SQL upsert operation that inserts new rows and updates existing rows.</td></tr>
+</tbody></table>
+</section>
+
+<section id="sample-json">
+<h2>4. Sample JSON File</h2>
+<p>Create a file named <code>retail_sales_sample.json</code> using the content below. Upload it to a Lakehouse Files area, OneLake folder, or another supported source that your Copy activity can read.</p>
+<pre><code>[
+  {
+    &quot;BatchID&quot;: 7001,
+    &quot;SourceSystem&quot;: &quot;WEB&quot;,
+    &quot;OrderID&quot;: 3001,
+    &quot;OrderLineID&quot;: 1,
+    &quot;OrderDate&quot;: &quot;2024-02-01&quot;,
+    &quot;CustomerID&quot;: 201,
+    &quot;CustomerName&quot;: &quot;James Wilson&quot;,
+    &quot;ProductID&quot;: 601,
+    &quot;ProductName&quot;: &quot;Wireless Headphones&quot;,
+    &quot;CategoryName&quot;: &quot;Electronics&quot;,
+    &quot;StoreID&quot;: 10,
+    &quot;StoreName&quot;: &quot;NYC Flagship&quot;,
+    &quot;Quantity&quot;: 2,
+    &quot;UnitPrice&quot;: 89.99,
+    &quot;DiscountPct&quot;: 0.00,
+    &quot;LoadDate&quot;: &quot;2024-02-02&quot;
+  },
+  {
+    &quot;BatchID&quot;: 7001,
+    &quot;SourceSystem&quot;: &quot;APP&quot;,
+    &quot;OrderID&quot;: 3002,
+    &quot;OrderLineID&quot;: 1,
+    &quot;OrderDate&quot;: &quot;2024-02-03&quot;,
+    &quot;CustomerID&quot;: 202,
+    &quot;CustomerName&quot;: &quot;Sophia Martinez&quot;,
+    &quot;ProductID&quot;: 602,
+    &quot;ProductName&quot;: &quot;Smart Watch&quot;,
+    &quot;CategoryName&quot;: &quot;Electronics&quot;,
+    &quot;StoreID&quot;: 20,
+    &quot;StoreName&quot;: &quot;LA Megastore&quot;,
+    &quot;Quantity&quot;: 1,
+    &quot;UnitPrice&quot;: 249.99,
+    &quot;DiscountPct&quot;: 10.00,
+    &quot;LoadDate&quot;: &quot;2024-02-04&quot;
+  },
+  {
+    &quot;BatchID&quot;: 7001,
+    &quot;SourceSystem&quot;: &quot;POS&quot;,
+    &quot;OrderID&quot;: 3003,
+    &quot;OrderLineID&quot;: 1,
+    &quot;OrderDate&quot;: &quot;2024-02-04&quot;,
+    &quot;CustomerID&quot;: 203,
+    &quot;CustomerName&quot;: &quot;Invalid Quantity Example&quot;,
+    &quot;ProductID&quot;: 603,
+    &quot;ProductName&quot;: &quot;Bluetooth Speaker&quot;,
+    &quot;CategoryName&quot;: &quot;Electronics&quot;,
+    &quot;StoreID&quot;: 30,
+    &quot;StoreName&quot;: &quot;Chicago Downtown&quot;,
+    &quot;Quantity&quot;: -1,
+    &quot;UnitPrice&quot;: 59.99,
+    &quot;DiscountPct&quot;: 0.00,
+    &quot;LoadDate&quot;: &quot;2024-02-05&quot;
+  }
+]</code></pre>
+</section>
+
+<section id="architecture">
+<h2>5. End-to-End Pipeline Architecture</h2>
+<div class="schema">JSON file: retail_sales_sample.json
+        |
+        |  Option A: Fabric Pipeline Copy activity
+        |  Option B: SQL INSERT script for classroom fallback
+        v
+Warehouse stage table: dbo.stage_RetailSalesJson
+        |
+        v
+Validation SQL
+        |
+        +---- invalid rows ----> dbo.elt_LoadErrors
+        |
+        v
+MERGE valid rows
+        |
+        v
+Curated table: dbo.curated_RetailSales
+        |
+        v
+Gold table: dbo.gold_DailySalesSummary
+        |
+        v
+Reporting view: dbo.vw_DailySalesSummary</div>
+</section>
+
+<section id="pipeline-plan">
+<h2>6. Full Fabric Pipeline Experience</h2>
+<ol>
+<li>Create or open a Fabric Warehouse.</li>
+<li>Create a new Fabric Data Pipeline named <code>PL_JSON_To_Warehouse_ETL</code>.</li>
+<li>Add Script activity <code>A01_CleanSlate</code> and paste Step 1 SQL.</li>
+<li>Add Script activity <code>A02_CreateStageTable</code> and paste Step 2 SQL.</li>
+<li>Add Copy activity <code>A03_CopyJsonToStage</code> to load the JSON file into <code>dbo.stage_RetailSalesJson</code>.</li>
+<li>If Copy activity is not available in the classroom environment, use the SQL-only fallback in Step 3 Option B.</li>
+<li>Add Script activity <code>A04_ValidateStage</code> and set the script type to Query.</li>
+<li>Add Script activity <code>A05_CaptureErrors</code> to store rejected rows.</li>
+<li>Add Script activity <code>A06_CreateTargetAndMerge</code> to create the curated table and MERGE valid rows.</li>
+<li>Add Script activity <code>A07_CreateGoldSummary</code> to build the Gold summary table.</li>
+<li>Add Script activity <code>A08_CreateReportingView</code>. Keep <code>CREATE VIEW</code> alone in this activity.</li>
+<li>Add Script activity <code>A09_FinalChecks</code> and set the script type to Query.</li>
+</ol>
+<div class="warning"><strong>Important:</strong> Keep <code>CREATE VIEW</code> in a separate Script activity because <code>CREATE VIEW</code> must be the first statement in its query batch.</div>
+</section>
+
+<section id="activity-plan">
+<h2>7. Pipeline Activity Plan</h2>
+<table><thead><tr><th>#</th><th>Activity name</th><th>Activity type</th><th>Script mode</th><th>Purpose</th></tr></thead><tbody>
+<tr><td>1</td><td><code>A01_CleanSlate</code></td><td>Script</td><td>NonQuery</td><td>Run cleanup SQL</td></tr>
+<tr><td>2</td><td><code>A02_CreateStageTable</code></td><td>Script</td><td>NonQuery</td><td>Create warehouse stage table</td></tr>
+<tr><td>3</td><td><code>A03_CopyJsonToStage</code></td><td>Copy data</td><td>N/A</td><td>Copy retail_sales_sample.json into dbo.stage_RetailSalesJson</td></tr>
+<tr><td>4</td><td><code>A04_ValidateStage</code></td><td>Script</td><td>Query</td><td>Run validation SQL and inspect output</td></tr>
+<tr><td>5</td><td><code>A05_CaptureErrors</code></td><td>Script</td><td>NonQuery</td><td>Insert invalid rows into dbo.elt_LoadErrors</td></tr>
+<tr><td>6</td><td><code>A06_CreateTargetAndMerge</code></td><td>Script</td><td>NonQuery</td><td>Create curated target and MERGE valid rows</td></tr>
+<tr><td>7</td><td><code>A07_CreateGoldSummary</code></td><td>Script</td><td>NonQuery</td><td>Create persisted aggregate table</td></tr>
+<tr><td>8</td><td><code>A08_CreateReportingView</code></td><td>Script</td><td>NonQuery</td><td>Create view in separate activity</td></tr>
+<tr><td>9</td><td><code>A09_FinalChecks</code></td><td>Script</td><td>Query</td><td>Run final validation queries</td></tr>
+</tbody></table>
+</section>
+
+<section id="copy-config">
+<h2>8. Copy Activity Configuration</h2>
+<h3>Source</h3>
+<ul>
+<li>Source type: JSON file from Lakehouse Files, OneLake, or another supported file source.</li>
+<li>File name: <code>retail_sales_sample.json</code></li>
+<li>Format: Array of JSON objects.</li>
+</ul>
+<h3>Destination</h3>
+<ul>
+<li>Destination type: Fabric Data Warehouse</li>
+<li>Table: <code>dbo.stage_RetailSalesJson</code></li>
+<li>Write behavior: Insert</li>
+</ul>
+<h3>Mapping</h3>
+<p>Map each JSON property to the matching warehouse column. A compact mapping example is included in Step 3 Option A.</p>
+</section>
+
+<section id="code-1"><h2>Step 1 SQL: Clean warehouse objects</h2><pre><code>DROP VIEW IF EXISTS dbo.vw_DailySalesSummary;
+DROP TABLE IF EXISTS dbo.gold_DailySalesSummary;
+DROP TABLE IF EXISTS dbo.elt_LoadErrors;
+DROP TABLE IF EXISTS dbo.curated_RetailSales;
+DROP TABLE IF EXISTS dbo.stage_RetailSalesJson;</code></pre></section>
+<section id="code-2"><h2>Step 2 SQL: Create stage table</h2><pre><code>CREATE TABLE dbo.stage_RetailSalesJson (
+    BatchID        INT           NOT NULL,
+    SourceSystem   VARCHAR(50)   NOT NULL,
+    OrderID        INT           NOT NULL,
+    OrderLineID    INT           NOT NULL,
+    OrderDate      DATE          NOT NULL,
+    CustomerID     INT           NOT NULL,
+    CustomerName   VARCHAR(200)  NOT NULL,
+    ProductID      INT           NOT NULL,
+    ProductName    VARCHAR(200)  NOT NULL,
+    CategoryName   VARCHAR(100)  NOT NULL,
+    StoreID        INT           NOT NULL,
+    StoreName      VARCHAR(200)  NOT NULL,
+    Quantity       INT           NOT NULL,
+    UnitPrice      DECIMAL(10,2) NOT NULL,
+    DiscountPct    DECIMAL(5,2)  NOT NULL,
+    LoadDate       DATE          NOT NULL
+);</code></pre></section>
+<section id="code-3"><h2>Step 3 Option A: Copy activity mapping for JSON to Warehouse</h2><pre><code>{
+  &quot;source&quot;: {
+    &quot;type&quot;: &quot;JSON file&quot;,
+    &quot;fileName&quot;: &quot;retail_sales_sample.json&quot;,
+    &quot;format&quot;: &quot;Array of JSON objects&quot;
+  },
+  &quot;destination&quot;: {
+    &quot;type&quot;: &quot;Fabric Data Warehouse&quot;,
+    &quot;table&quot;: &quot;dbo.stage_RetailSalesJson&quot;,
+    &quot;writeBehavior&quot;: &quot;Insert&quot;
+  },
+  &quot;mapping&quot;: [
+    { &quot;source&quot;: &quot;BatchID&quot;, &quot;sink&quot;: &quot;BatchID&quot; },
+    { &quot;source&quot;: &quot;SourceSystem&quot;, &quot;sink&quot;: &quot;SourceSystem&quot; },
+    { &quot;source&quot;: &quot;OrderID&quot;, &quot;sink&quot;: &quot;OrderID&quot; },
+    { &quot;source&quot;: &quot;OrderLineID&quot;, &quot;sink&quot;: &quot;OrderLineID&quot; },
+    { &quot;source&quot;: &quot;OrderDate&quot;, &quot;sink&quot;: &quot;OrderDate&quot; },
+    { &quot;source&quot;: &quot;CustomerID&quot;, &quot;sink&quot;: &quot;CustomerID&quot; },
+    { &quot;source&quot;: &quot;CustomerName&quot;, &quot;sink&quot;: &quot;CustomerName&quot; },
+    { &quot;source&quot;: &quot;ProductID&quot;, &quot;sink&quot;: &quot;ProductID&quot; },
+    { &quot;source&quot;: &quot;ProductName&quot;, &quot;sink&quot;: &quot;ProductName&quot; },
+    { &quot;source&quot;: &quot;CategoryName&quot;, &quot;sink&quot;: &quot;CategoryName&quot; },
+    { &quot;source&quot;: &quot;StoreID&quot;, &quot;sink&quot;: &quot;StoreID&quot; },
+    { &quot;source&quot;: &quot;StoreName&quot;, &quot;sink&quot;: &quot;StoreName&quot; },
+    { &quot;source&quot;: &quot;Quantity&quot;, &quot;sink&quot;: &quot;Quantity&quot; },
+    { &quot;source&quot;: &quot;UnitPrice&quot;, &quot;sink&quot;: &quot;UnitPrice&quot; },
+    { &quot;source&quot;: &quot;DiscountPct&quot;, &quot;sink&quot;: &quot;DiscountPct&quot; },
+    { &quot;source&quot;: &quot;LoadDate&quot;, &quot;sink&quot;: &quot;LoadDate&quot; }
+  ]
+}</code></pre></section>
+<section id="code-4"><h2>Step 3 Option B: SQL-only manual load for classrooms</h2><pre><code>INSERT INTO dbo.stage_RetailSalesJson VALUES
+(7001, &#x27;WEB&#x27;, 3001, 1, &#x27;2024-02-01&#x27;, 201, &#x27;James Wilson&#x27;,              601, &#x27;Wireless Headphones&#x27;, &#x27;Electronics&#x27;, 10, &#x27;NYC Flagship&#x27;,      2,  89.99,  0.00, &#x27;2024-02-02&#x27;),
+(7001, &#x27;APP&#x27;, 3002, 1, &#x27;2024-02-03&#x27;, 202, &#x27;Sophia Martinez&#x27;,          602, &#x27;Smart Watch&#x27;,         &#x27;Electronics&#x27;, 20, &#x27;LA Megastore&#x27;,      1, 249.99, 10.00, &#x27;2024-02-04&#x27;),
+(7001, &#x27;POS&#x27;, 3003, 1, &#x27;2024-02-04&#x27;, 203, &#x27;Invalid Quantity Example&#x27;, 603, &#x27;Bluetooth Speaker&#x27;,   &#x27;Electronics&#x27;, 30, &#x27;Chicago Downtown&#x27;, -1,  59.99,  0.00, &#x27;2024-02-05&#x27;);</code></pre></section>
+<section id="code-5"><h2>Step 4 SQL: Validate staged data</h2><pre><code>SELECT
+    BatchID,
+    COUNT(*) AS StageRows,
+    SUM(CASE WHEN Quantity &lt;= 0 THEN 1 ELSE 0 END) AS InvalidQuantityRows,
+    SUM(CASE WHEN UnitPrice &lt;= 0 THEN 1 ELSE 0 END) AS InvalidPriceRows,
+    SUM(CASE WHEN DiscountPct &lt; 0 OR DiscountPct &gt; 100 THEN 1 ELSE 0 END) AS InvalidDiscountRows
+FROM dbo.stage_RetailSalesJson
+GROUP BY BatchID;
+
+SELECT
+    OrderID,
+    OrderLineID,
+    CASE
+        WHEN Quantity &lt;= 0 THEN &#x27;Invalid Quantity&#x27;
+        WHEN UnitPrice &lt;= 0 THEN &#x27;Invalid Unit Price&#x27;
+        WHEN DiscountPct &lt; 0 OR DiscountPct &gt; 100 THEN &#x27;Invalid Discount Percent&#x27;
+        ELSE &#x27;Valid&#x27;
+    END AS ValidationStatus
+FROM dbo.stage_RetailSalesJson
+ORDER BY OrderID, OrderLineID;</code></pre></section>
+<section id="code-6"><h2>Step 5 SQL: Capture rejected rows</h2><pre><code>CREATE TABLE dbo.elt_LoadErrors (
+    BatchID           INT          NOT NULL,
+    SourceSystem      VARCHAR(50)  NOT NULL,
+    OrderID           INT          NOT NULL,
+    OrderLineID       INT          NOT NULL,
+    ErrorReason       VARCHAR(200) NOT NULL,
+    ErrorCapturedDate DATE         NOT NULL
+);
+
+INSERT INTO dbo.elt_LoadErrors
+SELECT
+    BatchID,
+    SourceSystem,
+    OrderID,
+    OrderLineID,
+    CASE
+        WHEN Quantity &lt;= 0 THEN &#x27;Invalid Quantity&#x27;
+        WHEN UnitPrice &lt;= 0 THEN &#x27;Invalid Unit Price&#x27;
+        WHEN DiscountPct &lt; 0 OR DiscountPct &gt; 100 THEN &#x27;Invalid Discount Percent&#x27;
+        ELSE &#x27;Unknown Error&#x27;
+    END AS ErrorReason,
+    CAST(&#x27;2024-02-05&#x27; AS DATE) AS ErrorCapturedDate
+FROM dbo.stage_RetailSalesJson
+WHERE Quantity &lt;= 0
+   OR UnitPrice &lt;= 0
+   OR DiscountPct &lt; 0
+   OR DiscountPct &gt; 100;</code></pre></section>
+<section id="code-7"><h2>Step 6 SQL: Create target and MERGE valid rows</h2><pre><code>CREATE TABLE dbo.curated_RetailSales (
+    OrderID          INT           NOT NULL,
+    OrderLineID      INT           NOT NULL,
+    OrderDate        DATE          NOT NULL,
+    CustomerID       INT           NOT NULL,
+    CustomerName     VARCHAR(200)  NOT NULL,
+    ProductID        INT           NOT NULL,
+    ProductName      VARCHAR(200)  NOT NULL,
+    CategoryName     VARCHAR(100)  NOT NULL,
+    StoreID          INT           NOT NULL,
+    StoreName        VARCHAR(200)  NOT NULL,
+    Quantity         INT           NOT NULL,
+    UnitPrice        DECIMAL(10,2) NOT NULL,
+    DiscountPct      DECIMAL(5,2)  NOT NULL,
+    GrossSalesAmount DECIMAL(10,2) NOT NULL,
+    DiscountAmount   DECIMAL(10,2) NOT NULL,
+    NetSalesAmount   DECIMAL(10,2) NOT NULL,
+    SourceSystem     VARCHAR(50)   NOT NULL,
+    BatchID          INT           NOT NULL,
+    LoadDate         DATE          NOT NULL
+);
+
+MERGE INTO dbo.curated_RetailSales AS target
+USING (
+    SELECT
+        BatchID,
+        SourceSystem,
+        OrderID,
+        OrderLineID,
+        OrderDate,
+        CustomerID,
+        CustomerName,
+        ProductID,
+        ProductName,
+        CategoryName,
+        StoreID,
+        StoreName,
+        Quantity,
+        UnitPrice,
+        DiscountPct,
+        ROUND(Quantity * UnitPrice, 2) AS GrossSalesAmount,
+        ROUND(Quantity * UnitPrice * (DiscountPct / 100), 2) AS DiscountAmount,
+        ROUND(Quantity * UnitPrice * (1 - DiscountPct / 100), 2) AS NetSalesAmount,
+        LoadDate
+    FROM dbo.stage_RetailSalesJson
+    WHERE Quantity &gt; 0
+      AND UnitPrice &gt; 0
+      AND DiscountPct &gt;= 0
+      AND DiscountPct &lt;= 100
+) AS source
+ON target.OrderID = source.OrderID
+AND target.OrderLineID = source.OrderLineID
+WHEN MATCHED THEN
+    UPDATE SET
+        target.Quantity = source.Quantity,
+        target.UnitPrice = source.UnitPrice,
+        target.DiscountPct = source.DiscountPct,
+        target.GrossSalesAmount = source.GrossSalesAmount,
+        target.DiscountAmount = source.DiscountAmount,
+        target.NetSalesAmount = source.NetSalesAmount,
+        target.SourceSystem = source.SourceSystem,
+        target.BatchID = source.BatchID,
+        target.LoadDate = source.LoadDate
+WHEN NOT MATCHED THEN
+    INSERT (
+        OrderID, OrderLineID, OrderDate, CustomerID, CustomerName,
+        ProductID, ProductName, CategoryName, StoreID, StoreName,
+        Quantity, UnitPrice, DiscountPct, GrossSalesAmount,
+        DiscountAmount, NetSalesAmount, SourceSystem, BatchID, LoadDate
+    )
+    VALUES (
+        source.OrderID, source.OrderLineID, source.OrderDate, source.CustomerID, source.CustomerName,
+        source.ProductID, source.ProductName, source.CategoryName, source.StoreID, source.StoreName,
+        source.Quantity, source.UnitPrice, source.DiscountPct, source.GrossSalesAmount,
+        source.DiscountAmount, source.NetSalesAmount, source.SourceSystem, source.BatchID, source.LoadDate
+    );</code></pre></section>
+<section id="code-8"><h2>Step 7 SQL: Create Gold summary table</h2><pre><code>CREATE TABLE dbo.gold_DailySalesSummary (
+    OrderDate      DATE          NOT NULL,
+    CategoryName   VARCHAR(100)  NOT NULL,
+    StoreName      VARCHAR(200)  NOT NULL,
+    TotalOrders    INT           NOT NULL,
+    TotalUnits     INT           NOT NULL,
+    GrossRevenue   DECIMAL(10,2) NOT NULL,
+    TotalDiscount  DECIMAL(10,2) NOT NULL,
+    NetRevenue     DECIMAL(10,2) NOT NULL
+);
+
+INSERT INTO dbo.gold_DailySalesSummary
+SELECT
+    OrderDate,
+    CategoryName,
+    StoreName,
+    COUNT(DISTINCT OrderID) AS TotalOrders,
+    SUM(Quantity) AS TotalUnits,
+    SUM(GrossSalesAmount) AS GrossRevenue,
+    SUM(DiscountAmount) AS TotalDiscount,
+    SUM(NetSalesAmount) AS NetRevenue
+FROM dbo.curated_RetailSales
+GROUP BY OrderDate, CategoryName, StoreName;</code></pre></section>
+<section id="code-9"><h2>Step 8 SQL: Create reporting view as separate activity</h2><pre><code>CREATE VIEW dbo.vw_DailySalesSummary AS
+SELECT
+    OrderDate,
+    CategoryName,
+    StoreName,
+    TotalOrders,
+    TotalUnits,
+    GrossRevenue,
+    TotalDiscount,
+    NetRevenue
+FROM dbo.gold_DailySalesSummary;</code></pre></section>
+<section id="code-10"><h2>Step 9 SQL: Final checks</h2><pre><code>SELECT * FROM dbo.elt_LoadErrors ORDER BY OrderID, OrderLineID;
+SELECT * FROM dbo.curated_RetailSales ORDER BY OrderID, OrderLineID;
+SELECT * FROM dbo.vw_DailySalesSummary ORDER BY OrderDate, CategoryName, StoreName;</code></pre></section>
+
+<section id="teacher-notes">
+<h2>Teacher Notes and Common Issues</h2>
+<ul>
+<li>If JSON copy is difficult in class, run the SQL-only manual load section instead.</li>
+<li>If <code>CREATE VIEW</code> fails, make sure the view creation is in a separate Script activity.</li>
+<li>If invalid rows are not captured, verify that the sample JSON includes the invalid quantity row.</li>
+<li>If the summary view returns no rows, verify that the MERGE step inserted valid rows into <code>dbo.curated_RetailSales</code>.</li>
+<li>For repeat runs, execute the cleanup step first.</li>
+</ul>
+</section>
+</main>
+<footer>Classroom lab for Microsoft Fabric Warehouse JSON loading, SQL transformation, and pipeline orchestration.</footer>
+</body></html>

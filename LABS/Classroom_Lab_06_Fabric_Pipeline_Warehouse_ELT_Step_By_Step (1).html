@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pipeline Lab: Warehouse ELT Patterns in Microsoft Fabric</title>
+<style>
+:root { --blue:#0078d4; --purple:#5c2d91; --dark:#123047; --bg:#f6f8fb; --panel:#fff; --border:#d7dee8; --code:#0f172a; --codetext:#e5e7eb; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:"Segoe UI", Arial, sans-serif; background:var(--bg); color:#1f2937; line-height:1.55; }
+header { background:linear-gradient(135deg,var(--blue),var(--purple)); color:white; padding:42px 28px; text-align:center; }
+header h1 { margin:0; font-size:2.15rem; }
+header p { max-width:980px; margin:12px auto 0; font-size:1.05rem; }
+main { max-width:1220px; margin:auto; padding:26px; }
+section { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:24px; margin:18px 0; box-shadow:0 2px 8px rgba(15,23,42,.05); }
+h2 { color:var(--dark); margin-top:0; border-bottom:2px solid #e5f2fb; padding-bottom:8px; }
+h3 { color:#23445f; }
+.badge { display:inline-block; background:#eef6fc; color:#123047; border:1px solid #c7e3f7; border-radius:999px; padding:4px 10px; margin:4px; font-weight:600; }
+.success { background:#eef8ef; border-left:5px solid #21a366; padding:14px 16px; border-radius:8px; margin:14px 0; }
+.warning { background:#fff0ed; border-left:5px solid #d83b01; padding:14px 16px; border-radius:8px; margin:14px 0; }
+.note { background:#fff8df; border-left:5px solid #f2c94c; padding:14px 16px; border-radius:8px; margin:14px 0; }
+table { width:100%; border-collapse:collapse; margin:14px 0; }
+th,td { border:1px solid var(--border); padding:10px 12px; text-align:left; vertical-align:top; }
+th { background:#eef6fc; color:var(--dark); }
+.schema { background:#f8fafc; border:1px dashed #9fb3c8; border-radius:12px; padding:16px; font-family:Consolas,"Courier New",monospace; white-space:pre; overflow-x:auto; }
+pre { background:var(--code); color:var(--codetext); padding:18px; border-radius:12px; overflow:auto; white-space:pre; font-family:Consolas,"Courier New",monospace; font-size:.84rem; line-height:1.45; border:1px solid #263145; }
+code { font-family:Consolas,"Courier New",monospace; }
+a { color:var(--blue); text-decoration:none; } a:hover { text-decoration:underline; }
+footer { text-align:center; color:#5b6472; padding:30px; }
+@media print { body{background:white} section{box-shadow:none; page-break-inside:avoid} pre{white-space:pre-wrap} header{print-color-adjust:exact;-webkit-print-color-adjust:exact} }
+</style>
+</head>
+<body>
+<header>
+<h1>Pipeline Lab: Warehouse ELT Patterns in Microsoft Fabric</h1>
+<p>Convert the SQL Lab into a Step-by-Step Microsoft Fabric Data Pipeline</p>
+<p><span class="badge">Warehouse</span><span class="badge">Data Pipeline</span><span class="badge">Script Activity</span><span class="badge">Stage → Validate → MERGE → Summary View</span></p>
+</header>
+<main>
+<section id="lab-info">
+<h2>1. Lab Information</h2>
+<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>
+<tr><td><strong>Lab number</strong></td><td>6 Pipeline Version</td></tr>
+<tr><td><strong>Estimated duration</strong></td><td>75–90 minutes</td></tr>
+<tr><td><strong>Modality</strong></td><td>Hands-on Microsoft Fabric pipeline lab</td></tr>
+<tr><td><strong>Primary Fabric items</strong></td><td>Data Pipeline, Warehouse, SQL Query Editor, Script activity</td></tr>
+</tbody></table>
+<div class="success"><strong>Goal:</strong> Build a Fabric Data Pipeline that runs the warehouse ELT workflow step by step using Script activities.</div>
+</section>
+
+<section id="objectives">
+<h2>2. Learning Objectives</h2>
+<ul>
+<li>Convert a manual warehouse SQL lab into an orchestrated Microsoft Fabric Data Pipeline.</li>
+<li>Use Script activities to run DDL, DML, validation, MERGE, and reporting queries.</li>
+<li>Keep <code>CREATE VIEW</code> in its own Script activity so it is the first statement in its query batch.</li>
+<li>Understand how pipeline dependencies control the order of warehouse loading steps.</li>
+<li>Practice stage, validate, error capture, MERGE, second batch load, aggregate refresh, and final checks.</li>
+</ul>
+</section>
+
+<section id="definitions">
+<h2>3. Small Definitions</h2>
+<table><thead><tr><th>Term</th><th>Definition</th></tr></thead><tbody>
+<tr><td><strong>Data Pipeline</strong></td><td>A Fabric orchestration item that runs activities in sequence or parallel.</td></tr>
+<tr><td><strong>Script activity</strong></td><td>A pipeline activity used to execute SQL scripts against supported data stores such as Fabric Data Warehouse.</td></tr>
+<tr><td><strong>NonQuery</strong></td><td>Script setting used for commands that create, insert, update, delete, or merge data.</td></tr>
+<tr><td><strong>Query</strong></td><td>Script setting used when the SQL returns result sets for inspection.</td></tr>
+<tr><td><strong>Dependency</strong></td><td>A link between pipeline activities that controls which activity runs after another activity succeeds.</td></tr>
+<tr><td><strong>MERGE</strong></td><td>An upsert operation that updates matching target rows and inserts new rows.</td></tr>
+<tr><td><strong>Persisted aggregate table</strong></td><td>A physical summary table used in this lab as a Warehouse-friendly materialized-view pattern.</td></tr>
+</tbody></table>
+</section>
+
+<section id="pipeline-flow">
+<h2>4. Pipeline Design</h2>
+<div class="schema">S01_CleanSlate
+  ↓
+S02_CreateStageTable
+  ↓
+S03_LoadStageBatch6001
+  ↓
+S04_ValidateStage
+  ↓
+S05_CaptureLoadErrors
+  ↓
+S06_CreateTargetTable
+  ↓
+S07_MergeBatch6001
+  ↓
+S08_LoadStageBatch6002
+  ↓
+S09_MergeBatch6002
+  ↓
+S10_CreateSummaryTable
+  ↓
+S11_CreateSummaryView
+  ↓
+S12_RefreshSummaryTable
+  ↓
+S13_FinalChecks</div>
+<div class="warning"><strong>Important:</strong> <code>S11_CreateSummaryView</code> must be a separate Script activity because <code>CREATE VIEW</code> must be the first statement in a query batch.</div>
+</section>
+
+<section id="create-pipeline">
+<h2>5. Create the Pipeline in Microsoft Fabric</h2>
+<ol>
+<li>Open the Microsoft Fabric workspace used for the classroom lab.</li>
+<li>Select <strong>New item</strong> and create a <strong>Data Pipeline</strong>.</li>
+<li>Name the pipeline <code>PL_Lab06_Warehouse_ELT</code>.</li>
+<li>Add one <strong>Script activity</strong> for each row in the activity plan below.</li>
+<li>For each activity, select the Fabric Warehouse connection in the activity settings.</li>
+<li>Use <strong>NonQuery</strong> for DDL/DML/MERGE steps and <strong>Query</strong> for validation/final-check steps.</li>
+<li>Connect the activities with success dependencies in the order shown.</li>
+<li>Save, run, and monitor the pipeline.</li>
+</ol>
+</section>
+
+<section id="activity-plan">
+<h2>6. Pipeline Activity Plan</h2>
+<table><thead><tr><th>#</th><th>Activity name</th><th>Activity type</th><th>Script setting</th><th>Depends on</th></tr></thead><tbody>
+<tr><td>1</td><td><code>S01_CleanSlate</code></td><td>Script activity</td><td>NonQuery</td><td>None</td></tr><tr><td>2</td><td><code>S02_CreateStageTable</code></td><td>Script activity</td><td>NonQuery</td><td>S01_CleanSlate</td></tr><tr><td>3</td><td><code>S03_LoadStageBatch6001</code></td><td>Script activity</td><td>NonQuery</td><td>S02_CreateStageTable</td></tr><tr><td>4</td><td><code>S04_ValidateStage</code></td><td>Script activity</td><td>Query</td><td>S03_LoadStageBatch6001</td></tr><tr><td>5</td><td><code>S05_CaptureLoadErrors</code></td><td>Script activity</td><td>NonQuery</td><td>S04_ValidateStage</td></tr><tr><td>6</td><td><code>S06_CreateTargetTable</code></td><td>Script activity</td><td>NonQuery</td><td>S05_CaptureLoadErrors</td></tr><tr><td>7</td><td><code>S07_MergeBatch6001</code></td><td>Script activity</td><td>NonQuery</td><td>S06_CreateTargetTable</td></tr><tr><td>8</td><td><code>S08_LoadStageBatch6002</code></td><td>Script activity</td><td>NonQuery</td><td>S07_MergeBatch6001</td></tr><tr><td>9</td><td><code>S09_MergeBatch6002</code></td><td>Script activity</td><td>NonQuery</td><td>S08_LoadStageBatch6002</td></tr><tr><td>10</td><td><code>S10_CreateSummaryTable</code></td><td>Script activity</td><td>NonQuery</td><td>S09_MergeBatch6002</td></tr><tr><td>11</td><td><code>S11_CreateSummaryView</code></td><td>Script activity</td><td>NonQuery</td><td>S10_CreateSummaryTable</td></tr><tr><td>12</td><td><code>S12_RefreshSummaryTable</code></td><td>Script activity</td><td>NonQuery</td><td>S11_CreateSummaryView</td></tr><tr><td>13</td><td><code>S13_FinalChecks</code></td><td>Script activity</td><td>Query</td><td>S12_RefreshSummaryTable</td></tr>
+</tbody></table>
+</section>
+
+
+<section id="step-1">
+  <h2>Step 1: Clean slate: drop previous lab objects</h2>
+  <p><strong>Pipeline activity name:</strong> <code>S01_CleanSlate</code></p>
+  <p><strong>Activity type:</strong> Script activity | <strong>Script setting:</strong> NonQuery</p>
+  <p>Drops old views/tables so the pipeline can be rerun safely during a classroom lab.</p>
+  <h3>Code to paste into the Script activity</h3>
+  <pre><code>DROP VIEW IF EXISTS dbo.vw_DailySalesSummary;
+DROP TABLE IF EXISTS dbo.mv_DailySalesSummary;
+DROP TABLE IF EXISTS dbo.elt_LoadErrors;
+DROP TABLE IF EXISTS dbo.tgt_RetailSales;
+DROP TABLE IF EXISTS dbo.stage_RetailSales;</code></pre>
+</section>
+<section id="step-2">
+  <h2>Step 2: Create the stage table</h2>
+  <p><strong>Pipeline activity name:</strong> <code>S02_CreateStageTable</code></p>
+  <p><strong>Activity type:</strong> Script activity | <strong>Script setting:</strong> NonQuery</p>
+  <p>Creates the raw landing/stage table that receives incoming rows before validation.</p>
+  <h3>Code to paste into the Script activity</h3>
+  <pre><code>CREATE TABLE dbo.stage_RetailSales (
+    BatchID        INT           NOT NULL,
+    SourceSystem   VARCHAR(50)   NOT NULL,
+    OrderID        INT           NOT NULL,
+    OrderLineID    INT           NOT NULL,
+    OrderDate      DATE          NOT NULL,
+    CustomerID     INT           NOT NULL,
+    CustomerName   VARCHAR(200)  NOT NULL,
+    ProductID      INT           NOT NULL,
+    ProductName    VARCHAR(200)  NOT NULL,
+    CategoryName   VARCHAR(100)  NOT NULL,
+    StoreID        INT           NOT NULL,
+    StoreName      VARCHAR(200)  NOT NULL,
+    Quantity       INT           NOT NULL,
+    UnitPrice      DECIMAL(10,2) NOT NULL,
+    DiscountPct    DECIMAL(5,2)  NOT NULL,
+    LoadDate       DATE          NOT NULL
+);</code></pre>
+</section>
+<section id="step-3">
+  <h2>Step 3: Load first batch into stage</h2>
+  <p><strong>Pipeline activity name:</strong> <code>S03_LoadStageBatch6001</code></p>
+  <p><strong>Activity type:</strong> Script activity | <strong>Script setting:</strong> NonQuery</p>
+  <p>Loads batch 6001 into the stage table. This includes valid rows and intentionally invalid rows for validation practice.</p>
+  <h3>Code to paste into the Script activity</h3>
+  <pre><code>INSERT INTO dbo.stage_RetailSales VALUES
+(6001, &#x27;POS&#x27;, 2001, 1,  &#x27;2024-01-05&#x27;, 101, &#x27;James Wilson&#x27;,   501, &#x27;Wireless Headphones&#x27;, &#x27;Electronics&#x27;, 10, &#x27;NYC Flagship&#x27;,     2,  89.99,  0.00, &#x27;2024-01-06&#x27;),
+(6001, &#x27;POS&#x27;, 2001, 2,  &#x27;2024-01-05&#x27;, 101, &#x27;James Wilson&#x27;,   508, &#x27;Yoga Mat&#x27;,            &#x27;Sports&#x27;,      10, &#x27;NYC Flagship&#x27;,     1,  29.99,  0.00, &#x27;2024-01-06&#x27;),
+(6001, &#x27;WEB&#x27;, 2002, 1,  &#x27;2024-01-08&#x27;, 102, &#x27;Sophia Martinez&#x27;,502, &#x27;Smart Watch&#x27;,         &#x27;Electronics&#x27;, 20, &#x27;LA Megastore&#x27;,     1, 249.99, 10.00, &#x27;2024-01-09&#x27;),
+(6001, &#x27;POS&#x27;, 2003, 1,  &#x27;2024-01-09&#x27;, 103, &#x27;Ethan Brown&#x27;,    504, &#x27;Running Jacket&#x27;,      &#x27;Clothing&#x27;,    30, &#x27;Chicago Downtown&#x27;,2,  79.99,  5.00, &#x27;2024-01-10&#x27;),
+(6001, &#x27;APP&#x27;, 2004, 1,  &#x27;2024-01-11&#x27;, 104, &#x27;Olivia Davis&#x27;,   505, &#x27;Casual Jeans&#x27;,        &#x27;Clothing&#x27;,    40, &#x27;Houston Mall&#x27;,    3,  49.99, 15.00, &#x27;2024-01-12&#x27;),
+(6001, &#x27;POS&#x27;, 2005, 1,  &#x27;2024-01-12&#x27;, 105, &#x27;Liam Garcia&#x27;,    509, &#x27;Running Shoes&#x27;,       &#x27;Sports&#x27;,      50, &#x27;Miami Beach&#x27;,     1,  99.99,  0.00, &#x27;2024-01-13&#x27;),
+(6001, &#x27;WEB&#x27;, 2006, 1,  &#x27;2024-01-13&#x27;, 106, &#x27;Emma Taylor&#x27;,    503, &#x27;Bluetooth Speaker&#x27;,   &#x27;Electronics&#x27;, 10, &#x27;NYC Flagship&#x27;,     2,  59.99, 20.00, &#x27;2024-01-14&#x27;),
+(6001, &#x27;POS&#x27;, 2007, 1,  &#x27;2024-01-14&#x27;, 107, &#x27;Noah Anderson&#x27;,  507, &#x27;LED Desk Lamp&#x27;,       &#x27;Home&#x27;,        20, &#x27;LA Megastore&#x27;,     2,  39.99,  0.00, &#x27;2024-01-15&#x27;),
+(6001, &#x27;APP&#x27;, 2008, 1,  &#x27;2024-01-15&#x27;, 108, &#x27;Ava Thomas&#x27;,     510, &#x27;Protein Powder 2lb&#x27;,  &#x27;Grocery&#x27;,     30, &#x27;Chicago Downtown&#x27;,4,  44.99, 10.00, &#x27;2024-01-16&#x27;),
+(6001, &#x27;WEB&#x27;, 2009, 1,  &#x27;2024-01-16&#x27;, 109, &#x27;Mason Jackson&#x27;,  506, &#x27;Garden Hose 50ft&#x27;,    &#x27;Home&#x27;,        40, &#x27;Houston Mall&#x27;,    1,  34.99,  0.00, &#x27;2024-01-17&#x27;),
+(6001, &#x27;POS&#x27;, 2010, 1,  &#x27;2024-01-17&#x27;, 110, &#x27;Invalid Qty&#x27;,     501, &#x27;Wireless Headphones&#x27;, &#x27;Electronics&#x27;, 10, &#x27;NYC Flagship&#x27;,    -1,  89.99,  0.00, &#x27;2024-01-18&#x27;),
+(6001, &#x27;WEB&#x27;, 2011, 1,  &#x27;2024-01-18&#x27;, 111, &#x27;Invalid Price&#x27;,   502, &#x27;Smart Watch&#x27;,         &#x27;Electronics&#x27;, 20, &#x27;LA Megastore&#x27;,     1,   0.00,  0.00, &#x27;2024-01-19&#x27;),
+(6001, &#x27;APP&#x27;, 2012, 1,  &#x27;2024-01-19&#x27;, 112, &#x27;Invalid Discount&#x27;,503, &#x27;Bluetooth Speaker&#x27;,   &#x27;Electronics&#x27;, 30, &#x27;Chicago Downtown&#x27;,1,  59.99,120.00, &#x27;2024-01-20&#x27;);</code></pre>
+</section>
+<section id="step-4">
+  <h2>Step 4: Validate stage data</h2>
+  <p><strong>Pipeline activity name:</strong> <code>S04_ValidateStage</code></p>
+  <p><strong>Activity type:</strong> Script activity | <strong>Script setting:</strong> Query</p>
+  <p>Runs data quality checks. In a real pipeline, you can inspect output in monitoring or split validations into pass/fail control logic.</p>
+  <h3>Code to paste into the Script activity</h3>
+  <pre><code>-- 4A: Row count by batch and source system
+SELECT
+    BatchID,
+    SourceSystem,
+    COUNT(*) AS StageRowCount
+FROM dbo.stage_RetailSales
+GROUP BY BatchID, SourceSystem
+ORDER BY BatchID, SourceSystem;
+
+-- 4B: Duplicate business key check
+SELECT
+    OrderID,
+    OrderLineID,
+    COUNT(*) AS DuplicateCount
+FROM dbo.stage_RetailSales
+GROUP BY OrderID, OrderLineID
+HAVING COUNT(*) &gt; 1;
+
+-- 4C: Data quality validation report
+SELECT
+    BatchID,
+    OrderID,
+    OrderLineID,
+    CASE
+        WHEN Quantity &lt;= 0 THEN &#x27;Invalid Quantity&#x27;
+        WHEN UnitPrice &lt;= 0 THEN &#x27;Invalid Unit Price&#x27;
+        WHEN DiscountPct &lt; 0 OR DiscountPct &gt; 100 THEN &#x27;Invalid Discount Percent&#x27;
+        WHEN CustomerID &lt;= 0 THEN &#x27;Invalid CustomerID&#x27;
+        WHEN ProductID &lt;= 0 THEN &#x27;Invalid ProductID&#x27;
+        WHEN StoreID &lt;= 0 THEN &#x27;Invalid StoreID&#x27;
+        ELSE &#x27;Valid&#x27;
+    END AS ValidationStatus
+FROM dbo.stage_RetailSales
+ORDER BY OrderID, OrderLineID;</code></pre>
+</section>
+<section id="step-5">
+  <h2>Step 5: Create and load error table</h2>
+  <p><strong>Pipeline activity name:</strong> <code>S05_CaptureLoadErrors</code></p>
+  <p><strong>Activity type:</strong> Script activity | <strong>Script setting:</strong> NonQuery</p>
+  <p>Creates an error table and captures rejected rows with reasons. This makes bad rows visible instead of silently dropping them.</p>
+  <h3>Code to paste into the Script activity</h3>
+  <pre><code>CREATE TABLE dbo.elt_LoadErrors (
+    BatchID           INT           NOT NULL,
+    SourceSystem      VARCHAR(50)   NOT NULL,
+    OrderID           INT           NOT NULL,
+    OrderLineID       INT           NOT NULL,
+    ErrorReason       VARCHAR(200)  NOT NULL,
+    ErrorCapturedDate DATE          NOT NULL
+);
+
+INSERT INTO dbo.elt_LoadErrors
+SELECT
+    BatchID,
+    SourceSystem,
+    OrderID,
+    OrderLineID,
+    CASE
+        WHEN Quantity &lt;= 0 THEN &#x27;Invalid Quantity&#x27;
+        WHEN UnitPrice &lt;= 0 THEN &#x27;Invalid Unit Price&#x27;
+        WHEN DiscountPct &lt; 0 OR DiscountPct &gt; 100 THEN &#x27;Invalid Discount Percent&#x27;
+        WHEN CustomerID &lt;= 0 THEN &#x27;Invalid CustomerID&#x27;
+        WHEN ProductID &lt;= 0 THEN &#x27;Invalid ProductID&#x27;
+        WHEN StoreID &lt;= 0 THEN &#x27;Invalid StoreID&#x27;
+        ELSE &#x27;Unknown Error&#x27;
+    END AS ErrorReason,
+    CAST(&#x27;2024-01-20&#x27; AS DATE) AS ErrorCapturedDate
+FROM dbo.stage_RetailSales
+WHERE Quantity &lt;= 0
+   OR UnitPrice &lt;= 0
+   OR DiscountPct &lt; 0
+   OR DiscountPct &gt; 100
+   OR CustomerID &lt;= 0
+   OR ProductID &lt;= 0
+   OR StoreID &lt;= 0;</code></pre>
+</section>
+<section id="step-6">
+  <h2>Step 6: Create curated target table</h2>
+  <p><strong>Pipeline activity name:</strong> <code>S06_CreateTargetTable</code></p>
+  <p><strong>Activity type:</strong> Script activity | <strong>Script setting:</strong> NonQuery</p>
+  <p>Creates the curated target table that stores clean and analytics-ready sales rows.</p>
+  <h3>Code to paste into the Script activity</h3>
+  <pre><code>CREATE TABLE dbo.tgt_RetailSales (
+    OrderID          INT           NOT NULL,
+    OrderLineID      INT           NOT NULL,
+    OrderDate        DATE          NOT NULL,
+    CustomerID       INT           NOT NULL,
+    CustomerName     VARCHAR(200)  NOT NULL,
+    ProductID        INT           NOT NULL,
+    ProductName      VARCHAR(200)  NOT NULL,
+    CategoryName     VARCHAR(100)  NOT NULL,
+    StoreID          INT           NOT NULL,
+    StoreName        VARCHAR(200)  NOT NULL,
+    Quantity         INT           NOT NULL,
+    UnitPrice        DECIMAL(10,2) NOT NULL,
+    DiscountPct      DECIMAL(5,2)  NOT NULL,
+    GrossSalesAmount DECIMAL(10,2) NOT NULL,
+    DiscountAmount   DECIMAL(10,2) NOT NULL,
+    NetSalesAmount   DECIMAL(10,2) NOT NULL,
+    SourceSystem     VARCHAR(50)   NOT NULL,
+    BatchID          INT           NOT NULL,
+    LoadDate         DATE          NOT NULL
+);</code></pre>
+</section>
+<section id="step-7">
+  <h2>Step 7: MERGE valid batch 6001 rows into target</h2>
+  <p><strong>Pipeline activity name:</strong> <code>S07_MergeBatch6001</code></p>
+  <p><strong>Activity type:</strong> Script activity | <strong>Script setting:</strong> NonQuery</p>
+  <p>Performs upsert from stage to target. Valid rows are inserted; invalid rows are excluded and already captured in the error table.</p>
+  <h3>Code to paste into the Script activity</h3>
+  <pre><code>MERGE INTO dbo.tgt_RetailSales AS target
+USING (
+    SELECT
+        BatchID,
+        SourceSystem,
+        OrderID,
+        OrderLineID,
+        OrderDate,
+        CustomerID,
+        CustomerName,
+        ProductID,
+        ProductName,
+        CategoryName,
+        StoreID,
+        StoreName,
+        Quantity,
+        UnitPrice,
+        DiscountPct,
+        ROUND(Quantity * UnitPrice, 2) AS GrossSalesAmount,
+        ROUND(Quantity * UnitPrice * (DiscountPct / 100), 2) AS DiscountAmount,
+        ROUND(Quantity * UnitPrice * (1 - DiscountPct / 100), 2) AS NetSalesAmount,
+        LoadDate
+    FROM dbo.stage_RetailSales
+    WHERE BatchID = 6001
+      AND Quantity &gt; 0
+      AND UnitPrice &gt; 0
+      AND DiscountPct &gt;= 0
+      AND DiscountPct &lt;= 100
+      AND CustomerID &gt; 0
+      AND ProductID &gt; 0
+      AND StoreID &gt; 0
+) AS source
+ON target.OrderID = source.OrderID
+AND target.OrderLineID = source.OrderLineID
+WHEN MATCHED THEN
+    UPDATE SET
+        target.OrderDate = source.OrderDate,
+        target.CustomerID = source.CustomerID,
+        target.CustomerName = source.CustomerName,
+        target.ProductID = source.ProductID,
+        target.ProductName = source.ProductName,
+        target.CategoryName = source.CategoryName,
+        target.StoreID = source.StoreID,
+        target.StoreName = source.StoreName,
+        target.Quantity = source.Quantity,
+        target.UnitPrice = source.UnitPrice,
+        target.DiscountPct = source.DiscountPct,
+        target.GrossSalesAmount = source.GrossSalesAmount,
+        target.DiscountAmount = source.DiscountAmount,
+        target.NetSalesAmount = source.NetSalesAmount,
+        target.SourceSystem = source.SourceSystem,
+        target.BatchID = source.BatchID,
+        target.LoadDate = source.LoadDate
+WHEN NOT MATCHED THEN
+    INSERT (
+        OrderID,
+        OrderLineID,
+        OrderDate,
+        CustomerID,
+        CustomerName,
+        ProductID,
+        ProductName,
+        CategoryName,
+        StoreID,
+        StoreName,
+        Quantity,
+        UnitPrice,
+        DiscountPct,
+        GrossSalesAmount,
+        DiscountAmount,
+        NetSalesAmount,
+        SourceSystem,
+        BatchID,
+        LoadDate
+    )
+    VALUES (
+        source.OrderID,
+        source.OrderLineID,
+        source.OrderDate,
+        source.CustomerID,
+        source.CustomerName,
+        source.ProductID,
+        source.ProductName,
+        source.CategoryName,
+        source.StoreID,
+        source.StoreName,
+        source.Quantity,
+        source.UnitPrice,
+        source.DiscountPct,
+        source.GrossSalesAmount,
+        source.DiscountAmount,
+        source.NetSalesAmount,
+        source.SourceSystem,
+        source.BatchID,
+        source.LoadDate
+    );</code></pre>
+</section>
+<section id="step-8">
+  <h2>Step 8: Load second batch into stage</h2>
+  <p><strong>Pipeline activity name:</strong> <code>S08_LoadStageBatch6002</code></p>
+  <p><strong>Activity type:</strong> Script activity | <strong>Script setting:</strong> NonQuery</p>
+  <p>Adds a second batch that updates an existing business key and inserts a new business key.</p>
+  <h3>Code to paste into the Script activity</h3>
+  <pre><code>INSERT INTO dbo.stage_RetailSales VALUES
+(6002, &#x27;WEB&#x27;, 2002, 1, &#x27;2024-01-08&#x27;, 102, &#x27;Sophia Martinez&#x27;, 502, &#x27;Smart Watch&#x27;,    &#x27;Electronics&#x27;, 20, &#x27;LA Megastore&#x27;,      2, 249.99, 10.00, &#x27;2024-01-21&#x27;),
+(6002, &#x27;APP&#x27;, 2013, 1, &#x27;2024-01-21&#x27;, 113, &#x27;New Customer&#x27;,    504, &#x27;Running Jacket&#x27;, &#x27;Clothing&#x27;,    30, &#x27;Chicago Downtown&#x27;, 1,  79.99,  0.00, &#x27;2024-01-22&#x27;);</code></pre>
+</section>
+<section id="step-9">
+  <h2>Step 9: MERGE valid batch 6002 rows into target</h2>
+  <p><strong>Pipeline activity name:</strong> <code>S09_MergeBatch6002</code></p>
+  <p><strong>Activity type:</strong> Script activity | <strong>Script setting:</strong> NonQuery</p>
+  <p>Runs the same upsert pattern for the second batch to demonstrate update and insert behavior.</p>
+  <h3>Code to paste into the Script activity</h3>
+  <pre><code>MERGE INTO dbo.tgt_RetailSales AS target
+USING (
+    SELECT
+        BatchID,
+        SourceSystem,
+        OrderID,
+        OrderLineID,
+        OrderDate,
+        CustomerID,
+        CustomerName,
+        ProductID,
+        ProductName,
+        CategoryName,
+        StoreID,
+        StoreName,
+        Quantity,
+        UnitPrice,
+        DiscountPct,
+        ROUND(Quantity * UnitPrice, 2) AS GrossSalesAmount,
+        ROUND(Quantity * UnitPrice * (DiscountPct / 100), 2) AS DiscountAmount,
+        ROUND(Quantity * UnitPrice * (1 - DiscountPct / 100), 2) AS NetSalesAmount,
+        LoadDate
+    FROM dbo.stage_RetailSales
+    WHERE BatchID = 6002
+      AND Quantity &gt; 0
+      AND UnitPrice &gt; 0
+      AND DiscountPct &gt;= 0
+      AND DiscountPct &lt;= 100
+      AND CustomerID &gt; 0
+      AND ProductID &gt; 0
+      AND StoreID &gt; 0
+) AS source
+ON target.OrderID = source.OrderID
+AND target.OrderLineID = source.OrderLineID
+WHEN MATCHED THEN
+    UPDATE SET
+        target.OrderDate = source.OrderDate,
+        target.CustomerID = source.CustomerID,
+        target.CustomerName = source.CustomerName,
+        target.ProductID = source.ProductID,
+        target.ProductName = source.ProductName,
+        target.CategoryName = source.CategoryName,
+        target.StoreID = source.StoreID,
+        target.StoreName = source.StoreName,
+        target.Quantity = source.Quantity,
+        target.UnitPrice = source.UnitPrice,
+        target.DiscountPct = source.DiscountPct,
+        target.GrossSalesAmount = source.GrossSalesAmount,
+        target.DiscountAmount = source.DiscountAmount,
+        target.NetSalesAmount = source.NetSalesAmount,
+        target.SourceSystem = source.SourceSystem,
+        target.BatchID = source.BatchID,
+        target.LoadDate = source.LoadDate
+WHEN NOT MATCHED THEN
+    INSERT (
+        OrderID,
+        OrderLineID,
+        OrderDate,
+        CustomerID,
+        CustomerName,
+        ProductID,
+        ProductName,
+        CategoryName,
+        StoreID,
+        StoreName,
+        Quantity,
+        UnitPrice,
+        DiscountPct,
+        GrossSalesAmount,
+        DiscountAmount,
+        NetSalesAmount,
+        SourceSystem,
+        BatchID,
+        LoadDate
+    )
+    VALUES (
+        source.OrderID,
+        source.OrderLineID,
+        source.OrderDate,
+        source.CustomerID,
+        source.CustomerName,
+        source.ProductID,
+        source.ProductName,
+        source.CategoryName,
+        source.StoreID,
+        source.StoreName,
+        source.Quantity,
+        source.UnitPrice,
+        source.DiscountPct,
+        source.GrossSalesAmount,
+        source.DiscountAmount,
+        source.NetSalesAmount,
+        source.SourceSystem,
+        source.BatchID,
+        source.LoadDate
+    );</code></pre>
+</section>
+<section id="step-10">
+  <h2>Step 10: Create persisted aggregate table</h2>
+  <p><strong>Pipeline activity name:</strong> <code>S10_CreateSummaryTable</code></p>
+  <p><strong>Activity type:</strong> Script activity | <strong>Script setting:</strong> NonQuery</p>
+  <p>Creates and loads a persisted aggregate table. This is the Fabric Warehouse-friendly materialized-view pattern.</p>
+  <h3>Code to paste into the Script activity</h3>
+  <pre><code>CREATE TABLE dbo.mv_DailySalesSummary (
+    OrderDate        DATE          NOT NULL,
+    CategoryName     VARCHAR(100)  NOT NULL,
+    StoreName        VARCHAR(200)  NOT NULL,
+    TotalOrders      INT           NOT NULL,
+    TotalUnits       INT           NOT NULL,
+    GrossRevenue     DECIMAL(10,2) NOT NULL,
+    TotalDiscount    DECIMAL(10,2) NOT NULL,
+    NetRevenue       DECIMAL(10,2) NOT NULL
+);
+
+INSERT INTO dbo.mv_DailySalesSummary
+SELECT
+    OrderDate,
+    CategoryName,
+    StoreName,
+    COUNT(DISTINCT OrderID) AS TotalOrders,
+    SUM(Quantity) AS TotalUnits,
+    SUM(GrossSalesAmount) AS GrossRevenue,
+    SUM(DiscountAmount) AS TotalDiscount,
+    SUM(NetSalesAmount) AS NetRevenue
+FROM dbo.tgt_RetailSales
+GROUP BY OrderDate, CategoryName, StoreName;</code></pre>
+</section>
+<section id="step-11">
+  <h2>Step 11: Create standard view on the summary table</h2>
+  <p><strong>Pipeline activity name:</strong> <code>S11_CreateSummaryView</code></p>
+  <p><strong>Activity type:</strong> Script activity | <strong>Script setting:</strong> NonQuery</p>
+  <p>Creates the reporting view. Keep this as its own Script activity because CREATE VIEW must be the first statement in a query batch.</p>
+  <h3>Code to paste into the Script activity</h3>
+  <pre><code>CREATE VIEW dbo.vw_DailySalesSummary AS
+SELECT
+    OrderDate,
+    CategoryName,
+    StoreName,
+    TotalOrders,
+    TotalUnits,
+    GrossRevenue,
+    TotalDiscount,
+    NetRevenue
+FROM dbo.mv_DailySalesSummary;</code></pre>
+</section>
+<section id="step-12">
+  <h2>Step 12: Refresh persisted aggregate table</h2>
+  <p><strong>Pipeline activity name:</strong> <code>S12_RefreshSummaryTable</code></p>
+  <p><strong>Activity type:</strong> Script activity | <strong>Script setting:</strong> NonQuery</p>
+  <p>Refreshes the persisted aggregate after curated target data changes.</p>
+  <h3>Code to paste into the Script activity</h3>
+  <pre><code>DELETE FROM dbo.mv_DailySalesSummary;
+
+INSERT INTO dbo.mv_DailySalesSummary
+SELECT
+    OrderDate,
+    CategoryName,
+    StoreName,
+    COUNT(DISTINCT OrderID) AS TotalOrders,
+    SUM(Quantity) AS TotalUnits,
+    SUM(GrossSalesAmount) AS GrossRevenue,
+    SUM(DiscountAmount) AS TotalDiscount,
+    SUM(NetSalesAmount) AS NetRevenue
+FROM dbo.tgt_RetailSales
+GROUP BY OrderDate, CategoryName, StoreName;</code></pre>
+</section>
+<section id="step-13">
+  <h2>Step 13: Final checks and reporting queries</h2>
+  <p><strong>Pipeline activity name:</strong> <code>S13_FinalChecks</code></p>
+  <p><strong>Activity type:</strong> Script activity | <strong>Script setting:</strong> Query</p>
+  <p>Runs final classroom verification queries after the pipeline completes.</p>
+  <h3>Code to paste into the Script activity</h3>
+  <pre><code>-- Check rejected rows
+SELECT *
+FROM dbo.elt_LoadErrors
+ORDER BY OrderID, OrderLineID;
+
+-- Check curated target rows
+SELECT *
+FROM dbo.tgt_RetailSales
+ORDER BY OrderID, OrderLineID;
+
+-- Check performance-oriented summary access layer
+SELECT *
+FROM dbo.vw_DailySalesSummary
+ORDER BY OrderDate, CategoryName, StoreName;</code></pre>
+</section>
+
+<section id="teacher-notes">
+<h2>Teacher Notes and Common Issues</h2>
+<ul>
+<li>If the view creation fails with <code>CREATE VIEW must be the first statement in a query batch</code>, confirm that <code>S11_CreateSummaryView</code> contains only the <code>CREATE VIEW</code> statement.</li>
+<li>If rerunning the pipeline fails on existing objects, confirm <code>S01_CleanSlate</code> ran successfully.</li>
+<li>If no invalid rows appear in <code>elt_LoadErrors</code>, confirm batch 6001 sample data includes the invalid quantity, price, and discount rows.</li>
+<li>If summary values appear stale, rerun <code>S12_RefreshSummaryTable</code>.</li>
+</ul>
+</section>
+</main>
+<footer>Pipeline classroom lab for Microsoft Fabric Warehouse ELT patterns.</footer>
+</body></html>

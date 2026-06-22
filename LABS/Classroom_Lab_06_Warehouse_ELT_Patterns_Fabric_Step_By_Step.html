@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lab 6: Warehouse ELT Patterns in Microsoft Fabric</title>
+<style>
+:root { --blue:#0078d4; --purple:#5c2d91; --dark:#123047; --bg:#f6f8fb; --panel:#fff; --border:#d7dee8; --code:#0f172a; --codetext:#e5e7eb; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:"Segoe UI", Arial, sans-serif; background:var(--bg); color:#1f2937; line-height:1.55; }
+header { background:linear-gradient(135deg,var(--blue),var(--purple)); color:white; padding:42px 28px; text-align:center; }
+header h1 { margin:0; font-size:2.15rem; }
+header p { max-width:980px; margin:12px auto 0; font-size:1.05rem; }
+main { max-width:1200px; margin:auto; padding:26px; }
+section { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:24px; margin:18px 0; box-shadow:0 2px 8px rgba(15,23,42,.05); }
+h2 { color:var(--dark); margin-top:0; border-bottom:2px solid #e5f2fb; padding-bottom:8px; }
+h3 { color:#23445f; }
+.badge { display:inline-block; background:#eef6fc; color:#123047; border:1px solid #c7e3f7; border-radius:999px; padding:4px 10px; margin:4px; font-weight:600; }
+.success { background:#eef8ef; border-left:5px solid #21a366; padding:14px 16px; border-radius:8px; margin:14px 0; }
+.warning { background:#fff0ed; border-left:5px solid #d83b01; padding:14px 16px; border-radius:8px; margin:14px 0; }
+table { width:100%; border-collapse:collapse; margin:14px 0; }
+th,td { border:1px solid var(--border); padding:10px 12px; text-align:left; vertical-align:top; }
+th { background:#eef6fc; color:var(--dark); }
+.schema { background:#f8fafc; border:1px dashed #9fb3c8; border-radius:12px; padding:16px; font-family:Consolas,"Courier New",monospace; white-space:pre; overflow-x:auto; }
+pre { background:var(--code); color:var(--codetext); padding:18px; border-radius:12px; overflow:auto; white-space:pre; font-family:Consolas,"Courier New",monospace; font-size:.84rem; line-height:1.45; border:1px solid #263145; }
+code { font-family:Consolas,"Courier New",monospace; }
+a { color:var(--blue); text-decoration:none; } a:hover { text-decoration:underline; }
+footer { text-align:center; color:#5b6472; padding:30px; }
+@media print { body{background:white} section{box-shadow:none; page-break-inside:avoid} pre{white-space:pre-wrap} header{print-color-adjust:exact;-webkit-print-color-adjust:exact} }
+</style>
+</head>
+<body>
+<header>
+<h1>Lab 6: Warehouse ELT Patterns in Microsoft Fabric</h1>
+<p>Stage, Validate, MERGE, and Materialized View Patterns for Classroom Warehousing</p>
+<p><span class="badge">Microsoft Fabric Warehouse</span><span class="badge">SQL Query Editor</span><span class="badge">Step-by-Step Embedded Script</span></p>
+</header>
+<main>
+<section id="lab-info">
+<h2>1. Lab Information</h2>
+<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>
+<tr><td><strong>Lab number</strong></td><td>6</td></tr>
+<tr><td><strong>Estimated duration</strong></td><td>75 minutes</td></tr>
+<tr><td><strong>Modality</strong></td><td>Hands-on warehousing lab</td></tr>
+<tr><td><strong>Primary Fabric items</strong></td><td>Warehouse, SQL Query Editor</td></tr>
+</tbody></table>
+<div class="success"><strong>Updated:</strong> The SQL script is embedded under each step, not placed only at the end.</div>
+</section>
+<section id="objectives">
+<h2>2. Learning Objectives</h2>
+<ul><li>Understand how SQL is used in warehouse loading workflows.</li><li>Create simple stage and target tables.</li><li>Use validation queries before loading curated output.</li><li>Practice MERGE logic and create a materialized-view-style access layer.</li></ul>
+<div class="warning"><strong>Fabric note:</strong> This lab uses a persisted aggregate table plus a standard view as the Warehouse-friendly materialized-view pattern.</div>
+</section>
+<section id="definitions">
+<h2>3. Small Definitions</h2>
+<table><thead><tr><th>Term</th><th>Definition</th></tr></thead><tbody>
+<tr><td><strong>ELT</strong></td><td>Extract, Load, Transform. Data is loaded first, then transformed in the warehouse.</td></tr>
+<tr><td><strong>Stage table</strong></td><td>Stores incoming/raw data before validation and curated loading.</td></tr>
+<tr><td><strong>Validation query</strong></td><td>Checks data quality rules before loading curated output.</td></tr>
+<tr><td><strong>Target table</strong></td><td>Stores clean, validated, analytics-ready rows.</td></tr>
+<tr><td><strong>MERGE</strong></td><td>SQL upsert pattern: update matching rows and insert new rows.</td></tr>
+<tr><td><strong>Materialized view pattern</strong></td><td>Physically stores repeated query output. In this lab: aggregate table + standard view.</td></tr>
+</tbody></table>
+</section>
+<section id="flow">
+<h2>4. ELT Lab Flow</h2>
+<div class="schema">Incoming rows
+    |
+    v
+Stage table: dbo.stage_RetailSales
+    |
+    v
+Validation queries + Error table: dbo.elt_LoadErrors
+    |
+    v
+MERGE valid rows
+    |
+    v
+Target table: dbo.tgt_RetailSales
+    |
+    v
+Persisted aggregate table: dbo.mv_DailySalesSummary
+    |
+    v
+Standard view: dbo.vw_DailySalesSummary</div>
+</section>
+<section id="step-index"><h2>5. Step Index</h2><ol><li><a href="#step-1">STEP 1: DROP EXISTING OBJECTS (clean slate)</a></li><li><a href="#step-2">STEP 2: CREATE STAGE TABLE</a></li><li><a href="#step-3">STEP 3: LOAD SAMPLE DATA INTO STAGE TABLE</a></li><li><a href="#step-4">STEP 4: VALIDATE STAGED DATA BEFORE LOADING</a></li><li><a href="#step-5">STEP 5: CAPTURE INVALID ROWS IN AN ERROR TABLE</a></li><li><a href="#step-6">STEP 6: CREATE CURATED TARGET TABLE</a></li><li><a href="#step-7">STEP 7: MERGE VALID STAGE ROWS INTO TARGET</a></li><li><a href="#step-8">STEP 8: SIMULATE A SECOND LOAD BATCH WITH CHANGES</a></li><li><a href="#step-9">STEP 9: CREATE A WAREHOUSE-FRIENDLY MATERIALIZED VIEW PATTERN</a></li><li><a href="#step-10">STEP 10: REFRESH THE PERSISTED AGGREGATE TABLE</a></li><li><a href="#learning-summary">Learning Summary</a></li></ol></section>
+
+<section id="step-1">
+<h2>STEP 1: DROP EXISTING OBJECTS (clean slate)</h2>
+<p>Drops previous lab objects so students can rerun the lab safely from a clean state.</p>
+<pre><code>-- ============================================================
+-- STEP 1: DROP EXISTING OBJECTS (clean slate)
+-- ============================================================
+DROP VIEW IF EXISTS dbo.vw_DailySalesSummary;
+DROP TABLE IF EXISTS dbo.mv_DailySalesSummary;
+DROP TABLE IF EXISTS dbo.elt_LoadErrors;
+DROP TABLE IF EXISTS dbo.tgt_RetailSales;
+DROP TABLE IF EXISTS dbo.stage_RetailSales;</code></pre>
+</section>
+<section id="step-2">
+<h2>STEP 2: CREATE STAGE TABLE</h2>
+<p>Creates the stage table that receives incoming/raw sales rows before validation.</p>
+<pre><code>-- ============================================================
+-- STEP 2: CREATE STAGE TABLE
+-- ============================================================
+-- Stage table definition:
+--   A stage table temporarily stores incoming/raw rows before they are
+--   validated and loaded into curated target tables.
+--
+-- In real projects, stage tables are often loaded from files, pipelines,
+-- dataflows, external systems, or lakehouse shortcuts.
+
+CREATE TABLE dbo.stage_RetailSales (
+    BatchID        INT           NOT NULL,
+    SourceSystem   VARCHAR(50)   NOT NULL,
+    OrderID        INT           NOT NULL,
+    OrderLineID    INT           NOT NULL,
+    OrderDate      DATE          NOT NULL,
+    CustomerID     INT           NOT NULL,
+    CustomerName   VARCHAR(200)  NOT NULL,
+    ProductID      INT           NOT NULL,
+    ProductName    VARCHAR(200)  NOT NULL,
+    CategoryName   VARCHAR(100)  NOT NULL,
+    StoreID        INT           NOT NULL,
+    StoreName      VARCHAR(200)  NOT NULL,
+    Quantity       INT           NOT NULL,
+    UnitPrice      DECIMAL(10,2) NOT NULL,
+    DiscountPct    DECIMAL(5,2)  NOT NULL,
+    LoadDate       DATE          NOT NULL
+);</code></pre>
+</section>
+<section id="step-3">
+<h2>STEP 3: LOAD SAMPLE DATA INTO STAGE TABLE</h2>
+<p>Loads sample stage data, including valid rows and intentionally invalid rows for validation practice.</p>
+<pre><code>-- ============================================================
+-- STEP 3: LOAD SAMPLE DATA INTO STAGE TABLE
+-- ============================================================
+-- The sample data includes valid rows, rows that update existing business
+-- keys, and a few intentionally invalid rows for validation practice.
+
+INSERT INTO dbo.stage_RetailSales VALUES
+(6001, &#x27;POS&#x27;, 2001, 1,  &#x27;2024-01-05&#x27;, 101, &#x27;James Wilson&#x27;,   501, &#x27;Wireless Headphones&#x27;, &#x27;Electronics&#x27;, 10, &#x27;NYC Flagship&#x27;,     2,  89.99,  0.00, &#x27;2024-01-06&#x27;),
+(6001, &#x27;POS&#x27;, 2001, 2,  &#x27;2024-01-05&#x27;, 101, &#x27;James Wilson&#x27;,   508, &#x27;Yoga Mat&#x27;,            &#x27;Sports&#x27;,      10, &#x27;NYC Flagship&#x27;,     1,  29.99,  0.00, &#x27;2024-01-06&#x27;),
+(6001, &#x27;WEB&#x27;, 2002, 1,  &#x27;2024-01-08&#x27;, 102, &#x27;Sophia Martinez&#x27;,502, &#x27;Smart Watch&#x27;,         &#x27;Electronics&#x27;, 20, &#x27;LA Megastore&#x27;,     1, 249.99, 10.00, &#x27;2024-01-09&#x27;),
+(6001, &#x27;POS&#x27;, 2003, 1,  &#x27;2024-01-09&#x27;, 103, &#x27;Ethan Brown&#x27;,    504, &#x27;Running Jacket&#x27;,      &#x27;Clothing&#x27;,    30, &#x27;Chicago Downtown&#x27;,2,  79.99,  5.00, &#x27;2024-01-10&#x27;),
+(6001, &#x27;APP&#x27;, 2004, 1,  &#x27;2024-01-11&#x27;, 104, &#x27;Olivia Davis&#x27;,   505, &#x27;Casual Jeans&#x27;,        &#x27;Clothing&#x27;,    40, &#x27;Houston Mall&#x27;,    3,  49.99, 15.00, &#x27;2024-01-12&#x27;),
+(6001, &#x27;POS&#x27;, 2005, 1,  &#x27;2024-01-12&#x27;, 105, &#x27;Liam Garcia&#x27;,    509, &#x27;Running Shoes&#x27;,       &#x27;Sports&#x27;,      50, &#x27;Miami Beach&#x27;,     1,  99.99,  0.00, &#x27;2024-01-13&#x27;),
+(6001, &#x27;WEB&#x27;, 2006, 1,  &#x27;2024-01-13&#x27;, 106, &#x27;Emma Taylor&#x27;,    503, &#x27;Bluetooth Speaker&#x27;,   &#x27;Electronics&#x27;, 10, &#x27;NYC Flagship&#x27;,     2,  59.99, 20.00, &#x27;2024-01-14&#x27;),
+(6001, &#x27;POS&#x27;, 2007, 1,  &#x27;2024-01-14&#x27;, 107, &#x27;Noah Anderson&#x27;,  507, &#x27;LED Desk Lamp&#x27;,       &#x27;Home&#x27;,        20, &#x27;LA Megastore&#x27;,     2,  39.99,  0.00, &#x27;2024-01-15&#x27;),
+(6001, &#x27;APP&#x27;, 2008, 1,  &#x27;2024-01-15&#x27;, 108, &#x27;Ava Thomas&#x27;,     510, &#x27;Protein Powder 2lb&#x27;,  &#x27;Grocery&#x27;,     30, &#x27;Chicago Downtown&#x27;,4,  44.99, 10.00, &#x27;2024-01-16&#x27;),
+(6001, &#x27;WEB&#x27;, 2009, 1,  &#x27;2024-01-16&#x27;, 109, &#x27;Mason Jackson&#x27;,  506, &#x27;Garden Hose 50ft&#x27;,    &#x27;Home&#x27;,        40, &#x27;Houston Mall&#x27;,    1,  34.99,  0.00, &#x27;2024-01-17&#x27;),
+
+-- Intentional invalid rows for validation examples
+(6001, &#x27;POS&#x27;, 2010, 1,  &#x27;2024-01-17&#x27;, 110, &#x27;Invalid Qty&#x27;,     501, &#x27;Wireless Headphones&#x27;, &#x27;Electronics&#x27;, 10, &#x27;NYC Flagship&#x27;,    -1,  89.99,  0.00, &#x27;2024-01-18&#x27;),
+(6001, &#x27;WEB&#x27;, 2011, 1,  &#x27;2024-01-18&#x27;, 111, &#x27;Invalid Price&#x27;,   502, &#x27;Smart Watch&#x27;,         &#x27;Electronics&#x27;, 20, &#x27;LA Megastore&#x27;,     1,   0.00,  0.00, &#x27;2024-01-19&#x27;),
+(6001, &#x27;APP&#x27;, 2012, 1,  &#x27;2024-01-19&#x27;, 112, &#x27;Invalid Discount&#x27;,503, &#x27;Bluetooth Speaker&#x27;,   &#x27;Electronics&#x27;, 30, &#x27;Chicago Downtown&#x27;,1,  59.99,120.00, &#x27;2024-01-20&#x27;);</code></pre>
+</section>
+<section id="step-4">
+<h2>STEP 4: VALIDATE STAGED DATA BEFORE LOADING</h2>
+<p>Runs validation queries to inspect row counts, duplicate business keys, and data quality status.</p>
+<pre><code>-- ============================================================
+-- STEP 4: VALIDATE STAGED DATA BEFORE LOADING
+-- ============================================================
+-- Validation means checking whether staged data is complete, reasonable,
+-- and safe to load into the curated target table.
+
+-- 4A: Row count by batch and source system
+SELECT
+    BatchID,
+    SourceSystem,
+    COUNT(*) AS StageRowCount
+FROM dbo.stage_RetailSales
+GROUP BY BatchID, SourceSystem
+ORDER BY BatchID, SourceSystem;
+
+-- 4B: Duplicate business key check
+-- Business key for this lab: OrderID + OrderLineID
+SELECT
+    OrderID,
+    OrderLineID,
+    COUNT(*) AS DuplicateCount
+FROM dbo.stage_RetailSales
+GROUP BY OrderID, OrderLineID
+HAVING COUNT(*) &gt; 1;
+
+-- 4C: Data quality validation report
+SELECT
+    BatchID,
+    OrderID,
+    OrderLineID,
+    CASE
+        WHEN Quantity &lt;= 0 THEN &#x27;Invalid Quantity&#x27;
+        WHEN UnitPrice &lt;= 0 THEN &#x27;Invalid Unit Price&#x27;
+        WHEN DiscountPct &lt; 0 OR DiscountPct &gt; 100 THEN &#x27;Invalid Discount Percent&#x27;
+        WHEN CustomerID &lt;= 0 THEN &#x27;Invalid CustomerID&#x27;
+        WHEN ProductID &lt;= 0 THEN &#x27;Invalid ProductID&#x27;
+        WHEN StoreID &lt;= 0 THEN &#x27;Invalid StoreID&#x27;
+        ELSE &#x27;Valid&#x27;
+    END AS ValidationStatus
+FROM dbo.stage_RetailSales
+ORDER BY OrderID, OrderLineID;</code></pre>
+</section>
+<section id="step-5">
+<h2>STEP 5: CAPTURE INVALID ROWS IN AN ERROR TABLE</h2>
+<p>Creates and loads an error table so invalid rows are captured with clear rejection reasons.</p>
+<pre><code>-- ============================================================
+-- STEP 5: CAPTURE INVALID ROWS IN AN ERROR TABLE
+-- ============================================================
+-- Error table definition:
+--   Stores rejected rows and a reason so the class can inspect data quality
+--   problems without silently losing the bad data.
+
+CREATE TABLE dbo.elt_LoadErrors (
+    BatchID          INT           NOT NULL,
+    SourceSystem     VARCHAR(50)   NOT NULL,
+    OrderID          INT           NOT NULL,
+    OrderLineID      INT           NOT NULL,
+    ErrorReason      VARCHAR(200)  NOT NULL,
+    ErrorCapturedDate DATE         NOT NULL
+);
+
+INSERT INTO dbo.elt_LoadErrors
+SELECT
+    BatchID,
+    SourceSystem,
+    OrderID,
+    OrderLineID,
+    CASE
+        WHEN Quantity &lt;= 0 THEN &#x27;Invalid Quantity&#x27;
+        WHEN UnitPrice &lt;= 0 THEN &#x27;Invalid Unit Price&#x27;
+        WHEN DiscountPct &lt; 0 OR DiscountPct &gt; 100 THEN &#x27;Invalid Discount Percent&#x27;
+        WHEN CustomerID &lt;= 0 THEN &#x27;Invalid CustomerID&#x27;
+        WHEN ProductID &lt;= 0 THEN &#x27;Invalid ProductID&#x27;
+        WHEN StoreID &lt;= 0 THEN &#x27;Invalid StoreID&#x27;
+        ELSE &#x27;Unknown Error&#x27;
+    END AS ErrorReason,
+    CAST(&#x27;2024-01-20&#x27; AS DATE) AS ErrorCapturedDate
+FROM dbo.stage_RetailSales
+WHERE Quantity &lt;= 0
+   OR UnitPrice &lt;= 0
+   OR DiscountPct &lt; 0
+   OR DiscountPct &gt; 100
+   OR CustomerID &lt;= 0
+   OR ProductID &lt;= 0
+   OR StoreID &lt;= 0;
+
+SELECT *
+FROM dbo.elt_LoadErrors
+ORDER BY OrderID, OrderLineID;</code></pre>
+</section>
+<section id="step-6">
+<h2>STEP 6: CREATE CURATED TARGET TABLE</h2>
+<p>Creates the curated target table that stores clean, validated, analytics-ready sales data.</p>
+<pre><code>-- ============================================================
+-- STEP 6: CREATE CURATED TARGET TABLE
+-- ============================================================
+-- Target table definition:
+--   The curated target stores clean, validated, analytics-ready rows.
+--   It also stores calculated measures that downstream users can query.
+
+CREATE TABLE dbo.tgt_RetailSales (
+    OrderID          INT           NOT NULL,
+    OrderLineID      INT           NOT NULL,
+    OrderDate        DATE          NOT NULL,
+    CustomerID       INT           NOT NULL,
+    CustomerName     VARCHAR(200)  NOT NULL,
+    ProductID        INT           NOT NULL,
+    ProductName      VARCHAR(200)  NOT NULL,
+    CategoryName     VARCHAR(100)  NOT NULL,
+    StoreID          INT           NOT NULL,
+    StoreName        VARCHAR(200)  NOT NULL,
+    Quantity         INT           NOT NULL,
+    UnitPrice        DECIMAL(10,2) NOT NULL,
+    DiscountPct      DECIMAL(5,2)  NOT NULL,
+    GrossSalesAmount DECIMAL(10,2) NOT NULL,
+    DiscountAmount   DECIMAL(10,2) NOT NULL,
+    NetSalesAmount   DECIMAL(10,2) NOT NULL,
+    SourceSystem     VARCHAR(50)   NOT NULL,
+    BatchID          INT           NOT NULL,
+    LoadDate         DATE          NOT NULL
+);</code></pre>
+</section>
+<section id="step-7">
+<h2>STEP 7: MERGE VALID STAGE ROWS INTO TARGET</h2>
+<p>Uses MERGE to upsert valid staged rows into the curated target table using OrderID + OrderLineID as the match key.</p>
+<pre><code>-- ============================================================
+-- STEP 7: MERGE VALID STAGE ROWS INTO TARGET
+-- ============================================================
+-- MERGE definition:
+--   MERGE performs an upsert: update rows that already exist in the target
+--   and insert rows that do not exist yet.
+--
+-- Matching rule:
+--   OrderID + OrderLineID identify one sales order line.
+
+MERGE INTO dbo.tgt_RetailSales AS target
+USING (
+    SELECT
+        BatchID,
+        SourceSystem,
+        OrderID,
+        OrderLineID,
+        OrderDate,
+        CustomerID,
+        CustomerName,
+        ProductID,
+        ProductName,
+        CategoryName,
+        StoreID,
+        StoreName,
+        Quantity,
+        UnitPrice,
+        DiscountPct,
+        ROUND(Quantity * UnitPrice, 2) AS GrossSalesAmount,
+        ROUND(Quantity * UnitPrice * (DiscountPct / 100), 2) AS DiscountAmount,
+        ROUND(Quantity * UnitPrice * (1 - DiscountPct / 100), 2) AS NetSalesAmount,
+        LoadDate
+    FROM dbo.stage_RetailSales
+    WHERE Quantity &gt; 0
+      AND UnitPrice &gt; 0
+      AND DiscountPct &gt;= 0
+      AND DiscountPct &lt;= 100
+      AND CustomerID &gt; 0
+      AND ProductID &gt; 0
+      AND StoreID &gt; 0
+) AS source
+ON target.OrderID = source.OrderID
+AND target.OrderLineID = source.OrderLineID
+WHEN MATCHED THEN
+    UPDATE SET
+        target.OrderDate = source.OrderDate,
+        target.CustomerID = source.CustomerID,
+        target.CustomerName = source.CustomerName,
+        target.ProductID = source.ProductID,
+        target.ProductName = source.ProductName,
+        target.CategoryName = source.CategoryName,
+        target.StoreID = source.StoreID,
+        target.StoreName = source.StoreName,
+        target.Quantity = source.Quantity,
+        target.UnitPrice = source.UnitPrice,
+        target.DiscountPct = source.DiscountPct,
+        target.GrossSalesAmount = source.GrossSalesAmount,
+        target.DiscountAmount = source.DiscountAmount,
+        target.NetSalesAmount = source.NetSalesAmount,
+        target.SourceSystem = source.SourceSystem,
+        target.BatchID = source.BatchID,
+        target.LoadDate = source.LoadDate
+WHEN NOT MATCHED THEN
+    INSERT (
+        OrderID,
+        OrderLineID,
+        OrderDate,
+        CustomerID,
+        CustomerName,
+        ProductID,
+        ProductName,
+        CategoryName,
+        StoreID,
+        StoreName,
+        Quantity,
+        UnitPrice,
+        DiscountPct,
+        GrossSalesAmount,
+        DiscountAmount,
+        NetSalesAmount,
+        SourceSystem,
+        BatchID,
+        LoadDate
+    )
+    VALUES (
+        source.OrderID,
+        source.OrderLineID,
+        source.OrderDate,
+        source.CustomerID,
+        source.CustomerName,
+        source.ProductID,
+        source.ProductName,
+        source.CategoryName,
+        source.StoreID,
+        source.StoreName,
+        source.Quantity,
+        source.UnitPrice,
+        source.DiscountPct,
+        source.GrossSalesAmount,
+        source.DiscountAmount,
+        source.NetSalesAmount,
+        source.SourceSystem,
+        source.BatchID,
+        source.LoadDate
+    );
+
+-- Check target result after MERGE
+SELECT *
+FROM dbo.tgt_RetailSales
+ORDER BY OrderID, OrderLineID;</code></pre>
+</section>
+<section id="step-8">
+<h2>STEP 8: SIMULATE A SECOND LOAD BATCH WITH CHANGES</h2>
+<p>Simulates a second load batch to demonstrate update and insert behavior with MERGE.</p>
+<pre><code>-- ============================================================
+-- STEP 8: SIMULATE A SECOND LOAD BATCH WITH CHANGES
+-- ============================================================
+-- This batch contains:
+--   - An update to an existing row: OrderID 2002, OrderLineID 1
+--   - A new valid row: OrderID 2013, OrderLineID 1
+
+INSERT INTO dbo.stage_RetailSales VALUES
+(6002, &#x27;WEB&#x27;, 2002, 1, &#x27;2024-01-08&#x27;, 102, &#x27;Sophia Martinez&#x27;, 502, &#x27;Smart Watch&#x27;,        &#x27;Electronics&#x27;, 20, &#x27;LA Megastore&#x27;, 2, 249.99, 10.00, &#x27;2024-01-21&#x27;),
+(6002, &#x27;APP&#x27;, 2013, 1, &#x27;2024-01-21&#x27;, 113, &#x27;New Customer&#x27;,    504, &#x27;Running Jacket&#x27;,     &#x27;Clothing&#x27;,    30, &#x27;Chicago Downtown&#x27;,1,  79.99,  0.00, &#x27;2024-01-22&#x27;);
+
+-- MERGE only the second batch
+MERGE INTO dbo.tgt_RetailSales AS target
+USING (
+    SELECT
+        BatchID,
+        SourceSystem,
+        OrderID,
+        OrderLineID,
+        OrderDate,
+        CustomerID,
+        CustomerName,
+        ProductID,
+        ProductName,
+        CategoryName,
+        StoreID,
+        StoreName,
+        Quantity,
+        UnitPrice,
+        DiscountPct,
+        ROUND(Quantity * UnitPrice, 2) AS GrossSalesAmount,
+        ROUND(Quantity * UnitPrice * (DiscountPct / 100), 2) AS DiscountAmount,
+        ROUND(Quantity * UnitPrice * (1 - DiscountPct / 100), 2) AS NetSalesAmount,
+        LoadDate
+    FROM dbo.stage_RetailSales
+    WHERE BatchID = 6002
+      AND Quantity &gt; 0
+      AND UnitPrice &gt; 0
+      AND DiscountPct &gt;= 0
+      AND DiscountPct &lt;= 100
+      AND CustomerID &gt; 0
+      AND ProductID &gt; 0
+      AND StoreID &gt; 0
+) AS source
+ON target.OrderID = source.OrderID
+AND target.OrderLineID = source.OrderLineID
+WHEN MATCHED THEN
+    UPDATE SET
+        target.Quantity = source.Quantity,
+        target.UnitPrice = source.UnitPrice,
+        target.DiscountPct = source.DiscountPct,
+        target.GrossSalesAmount = source.GrossSalesAmount,
+        target.DiscountAmount = source.DiscountAmount,
+        target.NetSalesAmount = source.NetSalesAmount,
+        target.SourceSystem = source.SourceSystem,
+        target.BatchID = source.BatchID,
+        target.LoadDate = source.LoadDate
+WHEN NOT MATCHED THEN
+    INSERT (
+        OrderID,
+        OrderLineID,
+        OrderDate,
+        CustomerID,
+        CustomerName,
+        ProductID,
+        ProductName,
+        CategoryName,
+        StoreID,
+        StoreName,
+        Quantity,
+        UnitPrice,
+        DiscountPct,
+        GrossSalesAmount,
+        DiscountAmount,
+        NetSalesAmount,
+        SourceSystem,
+        BatchID,
+        LoadDate
+    )
+    VALUES (
+        source.OrderID,
+        source.OrderLineID,
+        source.OrderDate,
+        source.CustomerID,
+        source.CustomerName,
+        source.ProductID,
+        source.ProductName,
+        source.CategoryName,
+        source.StoreID,
+        source.StoreName,
+        source.Quantity,
+        source.UnitPrice,
+        source.DiscountPct,
+        source.GrossSalesAmount,
+        source.DiscountAmount,
+        source.NetSalesAmount,
+        source.SourceSystem,
+        source.BatchID,
+        source.LoadDate
+    );
+
+-- Confirm that OrderID 2002 was updated and OrderID 2013 was inserted
+SELECT *
+FROM dbo.tgt_RetailSales
+WHERE OrderID IN (2002, 2013)
+ORDER BY OrderID, OrderLineID;</code></pre>
+</section>
+<section id="step-9">
+<h2>STEP 9: CREATE A WAREHOUSE-FRIENDLY MATERIALIZED VIEW PATTERN</h2>
+<p>Creates a Fabric Warehouse-friendly materialized view pattern using a persisted aggregate table plus a standard view.</p>
+<pre><code>-- ============================================================
+-- STEP 9: CREATE A WAREHOUSE-FRIENDLY MATERIALIZED VIEW PATTERN
+-- ============================================================
+-- Important Fabric note:
+--   Fabric Warehouse does not use CREATE MATERIALIZED VIEW in this lab.
+--   Instead, this lab materializes an aggregation into a physical table.
+--   A standard view is then created on top of that table for easy access.
+--
+-- Pattern:
+--   Target table -&gt; Persisted aggregate table -&gt; Standard view
+
+CREATE TABLE dbo.mv_DailySalesSummary (
+    OrderDate        DATE          NOT NULL,
+    CategoryName     VARCHAR(100)  NOT NULL,
+    StoreName        VARCHAR(200)  NOT NULL,
+    TotalOrders      INT           NOT NULL,
+    TotalUnits       INT           NOT NULL,
+    GrossRevenue     DECIMAL(10,2) NOT NULL,
+    TotalDiscount    DECIMAL(10,2) NOT NULL,
+    NetRevenue       DECIMAL(10,2) NOT NULL
+);
+
+INSERT INTO dbo.mv_DailySalesSummary
+SELECT
+    OrderDate,
+    CategoryName,
+    StoreName,
+    COUNT(DISTINCT OrderID) AS TotalOrders,
+    SUM(Quantity) AS TotalUnits,
+    SUM(GrossSalesAmount) AS GrossRevenue,
+    SUM(DiscountAmount) AS TotalDiscount,
+    SUM(NetSalesAmount) AS NetRevenue
+FROM dbo.tgt_RetailSales
+GROUP BY OrderDate, CategoryName, StoreName;
+
+CREATE VIEW dbo.vw_DailySalesSummary AS
+SELECT
+    OrderDate,
+    CategoryName,
+    StoreName,
+    TotalOrders,
+    TotalUnits,
+    GrossRevenue,
+    TotalDiscount,
+    NetRevenue
+FROM dbo.mv_DailySalesSummary;
+
+-- Query the performance-oriented access layer
+SELECT *
+FROM dbo.vw_DailySalesSummary
+ORDER BY OrderDate, CategoryName, StoreName;</code></pre>
+</section>
+<section id="step-10">
+<h2>STEP 10: REFRESH THE PERSISTED AGGREGATE TABLE</h2>
+<p>Refreshes the persisted aggregate table after target data changes.</p>
+<pre><code>-- ============================================================
+-- STEP 10: REFRESH THE PERSISTED AGGREGATE TABLE
+-- ============================================================
+-- Refresh definition:
+--   Because the aggregate table is physically stored, it must be refreshed
+--   when the curated target changes.
+--
+-- Simple classroom refresh pattern:
+--   1) Delete old aggregate rows
+--   2) Reinsert current aggregate output from the target table
+
+DELETE FROM dbo.mv_DailySalesSummary;
+
+INSERT INTO dbo.mv_DailySalesSummary
+SELECT
+    OrderDate,
+    CategoryName,
+    StoreName,
+    COUNT(DISTINCT OrderID) AS TotalOrders,
+    SUM(Quantity) AS TotalUnits,
+    SUM(GrossSalesAmount) AS GrossRevenue,
+    SUM(DiscountAmount) AS TotalDiscount,
+    SUM(NetSalesAmount) AS NetRevenue
+FROM dbo.tgt_RetailSales
+GROUP BY OrderDate, CategoryName, StoreName;
+
+SELECT *
+FROM dbo.vw_DailySalesSummary
+ORDER BY OrderDate, CategoryName, StoreName;</code></pre>
+</section>
+<section id="learning-summary"><h2>Learning Summary</h2><p>The learning summary is also embedded as its own final step block.</p><pre><code>-- ============================================================
+-- LEARNING SUMMARY
+-- ============================================================
+-- Stage:
+--   - Temporarily stores incoming data before validation and loading.
+--
+-- Validate:
+--   - Finds data quality issues before rows reach curated output.
+--
+-- MERGE:
+--   - Performs update/insert logic using business keys.
+--
+-- Materialized view pattern in Fabric Warehouse:
+--   - Use a persisted aggregate table plus a standard view for repeated
+--     performance-oriented access.
+-- ============================================================</code></pre></section>
+</main>
+<footer>Lab 6 classroom guide for Microsoft Fabric Warehouse ELT patterns.</footer>
+</body></html>

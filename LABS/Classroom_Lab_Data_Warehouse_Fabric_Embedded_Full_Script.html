@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Classroom Lab: Building a Data Warehouse in Microsoft Fabric</title>
+<style>
+:root { --blue:#0078d4; --purple:#5c2d91; --dark:#123047; --bg:#f6f8fb; --panel:#fff; --border:#d7dee8; --code:#0f172a; --codetext:#e5e7eb; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:"Segoe UI", Arial, sans-serif; background:var(--bg); color:#1f2937; line-height:1.55; }
+header { background:linear-gradient(135deg,var(--blue),var(--purple)); color:white; padding:42px 28px; text-align:center; }
+header h1 { margin:0; font-size:2.2rem; }
+header p { max-width:980px; margin:12px auto 0; font-size:1.05rem; }
+main { max-width:1200px; margin:auto; padding:26px; }
+section { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:24px; margin:18px 0; box-shadow:0 2px 8px rgba(15,23,42,.05); }
+h2 { color:var(--dark); margin-top:0; border-bottom:2px solid #e5f2fb; padding-bottom:8px; }
+h3 { color:#23445f; }
+.badge { display:inline-block; background:#eef6fc; color:#123047; border:1px solid #c7e3f7; border-radius:999px; padding:4px 10px; margin:4px; font-weight:600; }
+.note { background:#fff8df; border-left:5px solid #f2c94c; padding:14px 16px; border-radius:8px; margin:14px 0; }
+.success { background:#eef8ef; border-left:5px solid #21a366; padding:14px 16px; border-radius:8px; margin:14px 0; }
+.warning { background:#fff0ed; border-left:5px solid #d83b01; padding:14px 16px; border-radius:8px; margin:14px 0; }
+table { width:100%; border-collapse:collapse; margin:14px 0; }
+th,td { border:1px solid var(--border); padding:10px 12px; text-align:left; vertical-align:top; }
+th { background:#eef6fc; color:var(--dark); }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:14px; }
+.card { border:1px solid var(--border); border-radius:12px; padding:16px; background:#fbfdff; }
+pre { background:var(--code); color:var(--codetext); padding:18px; border-radius:12px; overflow:auto; white-space:pre; font-family:Consolas,"Courier New",monospace; font-size:.84rem; line-height:1.45; border:1px solid #263145; }
+code { font-family:Consolas,"Courier New",monospace; }
+.schema { background:#f8fafc; border:1px dashed #9fb3c8; border-radius:12px; padding:16px; font-family:Consolas,"Courier New",monospace; white-space:pre; overflow-x:auto; }
+a { color:var(--blue); text-decoration:none; } a:hover { text-decoration:underline; }
+footer { text-align:center; color:#5b6472; padding:30px; }
+@media print { body{background:white} section{box-shadow:none; page-break-inside:avoid} pre{white-space:pre-wrap} header{print-color-adjust:exact;-webkit-print-color-adjust:exact} }
+</style>
+</head>
+<body>
+<header>
+<h1>Classroom Lab Guide: Building a Data Warehouse in Microsoft Fabric</h1>
+<p>Retail Sales Data Warehouse Lab: Normalized 3NF Source Tables → Star Schema with Fact and Dimension Tables</p>
+<p><span class="badge">Microsoft Fabric Warehouse</span><span class="badge">Embedded Full SQL Script</span><span class="badge">No Missing Columns/Data</span><span class="badge">Classroom Lab</span></p>
+</header>
+<main>
+<section id="contents">
+<h2>1. What This HTML File Contains</h2>
+<ul>
+<li><a href="#overview">Lab overview and goal</a></li>
+<li><a href="#definitions">Small definitions</a></li>
+<li><a href="#fabric-rules">Microsoft Fabric compatibility rules</a></li>
+<li><a href="#architecture">Data warehouse architecture</a></li>
+<li><a href="#steps">Step-by-step Fabric lab guide</a></li>
+<li><a href="#before-query">BEFORE normalized query</a></li>
+<li><a href="#after-query">AFTER star schema query</a></li>
+<li><a href="#script-details">Script details and table purpose</a></li>
+<li><a href="#full-script">Full embedded SQL script appendix</a></li>
+</ul>
+<div class="success"><strong>Confirmed:</strong> The full SQL script is embedded inside this HTML file in Appendix A. It includes all source tables, all dimension tables, the fact table, all sample data rows, the BEFORE query, the AFTER query, and the extra analytical queries.</div>
+</section>
+
+<section id="overview">
+<h2>2. Lab Overview</h2>
+<p>This classroom lab teaches students how to build a small retail sales data warehouse in <strong>Microsoft Fabric Warehouse</strong>. Students begin with normalized source tables, load sample operational data, run a reporting query from the normalized model, then build a star schema with one fact table and five dimension tables.</p>
+<h3>Learning Objectives</h3>
+<ul>
+<li>Create normalized source tables in Microsoft Fabric Warehouse.</li>
+<li>Load complete sample data without removing rows or columns.</li>
+<li>Run a BEFORE query directly on normalized 3NF source tables.</li>
+<li>Create dimension tables and a fact table.</li>
+<li>Run an AFTER query using the star schema.</li>
+<li>Understand facts, dimensions, grain, measures, surrogate keys, and degenerate dimensions.</li>
+</ul>
+</section>
+
+<section id="definitions">
+<h2>3. Small Definitions</h2>
+<table><thead><tr><th>Term</th><th>Definition</th></tr></thead><tbody>
+<tr><td><strong>Microsoft Fabric Warehouse</strong></td><td>A cloud-based SQL analytics warehouse in Microsoft Fabric. This lab uses Fabric Warehouse, not local SQL Server.</td></tr>
+<tr><td><strong>Data warehouse</strong></td><td>A central analytics database designed for reporting, dashboards, historical analysis, and decision-making.</td></tr>
+<tr><td><strong>3NF / normalized model</strong></td><td>A database design where data is split into multiple small related tables to reduce duplication and improve integrity.</td></tr>
+<tr><td><strong>Star schema</strong></td><td>A dimensional model with one central fact table connected to multiple dimension tables.</td></tr>
+<tr><td><strong>Fact table</strong></td><td>A table that stores measurable business events. In this lab, <code>FactSales</code> stores sales order line measures.</td></tr>
+<tr><td><strong>Dimension table</strong></td><td>A table that stores descriptive context for facts, such as product, customer, date, store, and promotion.</td></tr>
+<tr><td><strong>Measure</strong></td><td>A numeric value used in analysis, such as <code>QuantitySold</code>, <code>NetSalesAmount</code>, <code>GrossProfit</code>, or <code>DiscountAmount</code>.</td></tr>
+<tr><td><strong>Grain</strong></td><td>The exact level of detail in a fact table. In this lab, the grain is one row per sales order line.</td></tr>
+<tr><td><strong>Surrogate key</strong></td><td>A warehouse key used to join facts and dimensions, such as <code>DateKey</code>, <code>ProductKey</code>, and <code>CustomerKey</code>.</td></tr>
+<tr><td><strong>Degenerate dimension</strong></td><td>A transaction identifier stored directly in the fact table without a separate dimension table, such as <code>OrderID</code> or <code>OrderLineID</code>.</td></tr>
+</tbody></table>
+</section>
+
+<section id="fabric-rules">
+<h2>4. Microsoft Fabric Compatibility Rules</h2>
+<div class="warning"><strong>Do not run this as local SQL Server-only code.</strong> This lab is adapted for Microsoft Fabric Warehouse.</div>
+<ul>
+<li>Use <code>VARCHAR</code> and <code>CHAR</code> instead of <code>NVARCHAR</code> and <code>NCHAR</code>.</li>
+<li>Do not use <code>DEFAULT</code> inside <code>CREATE TABLE</code> statements.</li>
+<li>Do not create computed columns inside <code>CREATE TABLE</code>; calculate values during <code>INSERT SELECT</code>.</li>
+<li>Avoid <code>FORMAT()</code>; use <code>CONVERT(VARCHAR(8), OrderDate, 112)</code> for <code>YYYYMMDD</code> date keys.</li>
+</ul>
+</section>
+
+<section id="architecture">
+<h2>5. Lab Architecture</h2>
+<table><thead><tr><th>Layer</th><th>Tables</th><th>Purpose</th></tr></thead><tbody>
+<tr><td><strong>Source / BEFORE</strong></td><td><code>src_Category</code>, <code>src_Supplier</code>, <code>src_Product</code>, <code>src_City</code>, <code>src_Store</code>, <code>src_Customer</code>, <code>src_Promotion</code>, <code>src_SalesOrder</code>, <code>src_SalesOrderLine</code></td><td>Simulates normalized operational data.</td></tr>
+<tr><td><strong>Dimension / AFTER</strong></td><td><code>DimDate</code>, <code>DimProduct</code>, <code>DimCustomer</code>, <code>DimStore</code>, <code>DimPromotion</code></td><td>Stores descriptive attributes for reporting.</td></tr>
+<tr><td><strong>Fact / AFTER</strong></td><td><code>FactSales</code></td><td>Stores numeric sales measures at sales order line grain.</td></tr>
+</tbody></table>
+<h3>Star Schema View</h3>
+<div class="schema">                 DimDate
+                    |
+DimProduct -- FactSales -- DimCustomer
+                    |
+                DimStore
+                    |
+              DimPromotion</div>
+</section>
+
+<section id="steps">
+<h2>6. Step-by-Step Fabric Lab Guide</h2>
+<div class="grid">
+<div class="card"><h3>Step 1: Open Microsoft Fabric</h3><p>Open Microsoft Fabric and select the classroom workspace.</p></div>
+<div class="card"><h3>Step 2: Create/Open Warehouse</h3><p>Create a Fabric Warehouse or open the existing class Warehouse. Do not use local SQL Server.</p></div>
+<div class="card"><h3>Step 3: Open SQL Editor</h3><p>Open a new SQL query window inside the Fabric Warehouse.</p></div>
+<div class="card"><h3>Step 4: Clean Slate</h3><p>Run STEP 1 to drop existing lab tables.</p></div>
+<div class="card"><h3>Step 5: Create Source Tables</h3><p>Run STEP 2 to create normalized 3NF source tables.</p></div>
+<div class="card"><h3>Step 6: Load Sample Data</h3><p>Run STEP 3. Do not remove any sample data.</p></div>
+<div class="card"><h3>Step 7: Run BEFORE Query</h3><p>Run STEP 3A and observe the multiple joins.</p></div>
+<div class="card"><h3>Step 8: Build Dimensions</h3><p>Run STEP 4 to create dimension tables.</p></div>
+<div class="card"><h3>Step 9: Build Fact Table</h3><p>Run STEP 5 to create and load <code>FactSales</code>.</p></div>
+<div class="card"><h3>Step 10: Run AFTER Query</h3><p>Run STEP 6 and compare with the BEFORE query.</p></div>
+<div class="card"><h3>Step 11: Extra Analytics</h3><p>Run STEP 7 for revenue, products, and promotion analysis.</p></div>
+<div class="card"><h3>Step 12: Discuss</h3><p>Discuss why star schema is better for BI and Power BI.</p></div>
+</div>
+</section>
+
+<section id="before-query">
+<h2>7. BEFORE Normalized Query</h2>
+<p>This query answers the business question before the star schema exists. It joins many normalized source tables.</p>
+<div class="note"><strong>Business question:</strong> What is monthly revenue and profit by product category and state?</div>
+<pre><code>-- STEP 3A: BEFORE STAR SCHEMA QUERY - NORMALIZED 3NF QUERY
+-- ============================================================
+-- Business question:
+--   What is monthly revenue and profit by product category and state?
+--
+-- In the normalized model, the query must join many tables:
+--   OrderLine -&gt; Order -&gt; Product -&gt; Category -&gt; Store -&gt; City
+-- This is correct, but less friendly for analysts and BI reporting.
+
+SELECT
+    YEAR(o.OrderDate) AS SalesYear,
+    MONTH(o.OrderDate) AS SalesMonth,
+    c.CategoryName,
+    ci.StateProvince,
+    COUNT(DISTINCT o.OrderID) AS TotalOrders,
+    SUM(ol.Quantity) AS UnitsSold,
+    SUM(ROUND(ol.Quantity * ol.UnitPrice, 2)) AS GrossRevenue,
+    SUM(ROUND(ol.Quantity * ol.UnitPrice * (1 - ol.Discount / 100), 2)) AS NetRevenue,
+    SUM(ROUND((ol.Quantity * ol.UnitPrice * (1 - ol.Discount / 100)) - (ol.Quantity * p.UnitCost), 2)) AS GrossProfit
+FROM dbo.src_SalesOrderLine ol
+JOIN dbo.src_SalesOrder o ON ol.OrderID = o.OrderID
+JOIN dbo.src_Product p ON ol.ProductID = p.ProductID
+JOIN dbo.src_Category c ON p.CategoryID = c.CategoryID
+JOIN dbo.src_Store st ON o.StoreID = st.StoreID
+JOIN dbo.src_City ci ON st.CityID = ci.CityID
+GROUP BY
+    YEAR(o.OrderDate),
+    MONTH(o.OrderDate),
+    c.CategoryName,
+    ci.StateProvince
+ORDER BY
+    SalesYear,
+    SalesMonth,
+    NetRevenue DESC;</code></pre>
+</section>
+
+<section id="after-query">
+<h2>8. AFTER Star Schema Query</h2>
+<p>This query answers the same business question after the star schema is built using <code>FactSales</code> and dimensions.</p>
+<div class="success"><strong>Why better:</strong> Descriptive business columns already exist in dimensions, so the query is easier to read and easier to use in BI tools.</div>
+<pre><code>-- STEP 6: AFTER STAR SCHEMA QUERY - SAME BUSINESS QUESTION
+-- ============================================================
+-- Same question as STEP 3A:
+--   What is monthly revenue and profit by product category and state?
+--
+-- In the star schema, the query is easier:
+--   FactSales -&gt; DimDate -&gt; DimProduct -&gt; DimStore
+-- The descriptive columns already exist in dimensions.
+
+SELECT
+    d.Year AS SalesYear,
+    d.MonthNumber AS SalesMonth,
+    p.CategoryName,
+    s.StateProvince,
+    COUNT(DISTINCT f.OrderID) AS TotalOrders,
+    SUM(f.QuantitySold) AS UnitsSold,
+    SUM(f.GrossSalesAmount) AS GrossRevenue,
+    SUM(f.NetSalesAmount) AS NetRevenue,
+    SUM(f.GrossProfit) AS GrossProfit
+FROM dbo.FactSales f
+JOIN dbo.DimDate d ON f.DateKey = d.DateKey
+JOIN dbo.DimProduct p ON f.ProductKey = p.ProductKey
+JOIN dbo.DimStore s ON f.StoreKey = s.StoreKey
+GROUP BY
+    d.Year,
+    d.MonthNumber,
+    p.CategoryName,
+    s.StateProvince
+ORDER BY
+    SalesYear,
+    SalesMonth,
+    NetRevenue DESC;</code></pre>
+</section>
+
+<section id="script-details">
+<h2>9. Script Details and Table Purpose</h2>
+<table><thead><tr><th>Table</th><th>Definition / Purpose</th></tr></thead><tbody>
+<tr><td><code>src_Category</code></td><td>Source category lookup. Provides CategoryName and Department.</td></tr>
+<tr><td><code>src_Supplier</code></td><td>Source supplier lookup. Provides SupplierName and Country.</td></tr>
+<tr><td><code>src_Product</code></td><td>Source product table. Connects products to categories and suppliers and stores cost/list price.</td></tr>
+<tr><td><code>src_City</code></td><td>Source geography table. Provides city, state/province, and country.</td></tr>
+<tr><td><code>src_Store</code></td><td>Source store table. Connects each store to a city and stores store attributes.</td></tr>
+<tr><td><code>src_Customer</code></td><td>Source customer table. Connects each customer to a city and stores loyalty attributes.</td></tr>
+<tr><td><code>src_Promotion</code></td><td>Source promotion table. Stores promotion dates, channel, and discount percentage.</td></tr>
+<tr><td><code>src_SalesOrder</code></td><td>Source sales order header table. Stores order date, customer, store, and promotion.</td></tr>
+<tr><td><code>src_SalesOrderLine</code></td><td>Source sales order line table. Stores product, quantity, unit price, and discount.</td></tr>
+<tr><td><code>DimDate</code></td><td>Date dimension used for grouping by day, month, quarter, year, fiscal year, and weekend flag.</td></tr>
+<tr><td><code>DimProduct</code></td><td>Product dimension combining product, category, and supplier information.</td></tr>
+<tr><td><code>DimCustomer</code></td><td>Customer dimension combining customer and city information.</td></tr>
+<tr><td><code>DimStore</code></td><td>Store dimension combining store and city information.</td></tr>
+<tr><td><code>DimPromotion</code></td><td>Promotion dimension with promotion names, tiers, dates, channels, and duration.</td></tr>
+<tr><td><code>FactSales</code></td><td>Central fact table containing one row per sales order line and numeric measures for analytics.</td></tr>
+</tbody></table>
+</section>
+
+<section id="full-script">
+<h2>10. Appendix A: Full Embedded Microsoft Fabric SQL Script</h2>
+<div class="success"><strong>Full script embedded below:</strong> This includes every step, every column, every sample data row, the BEFORE query, the AFTER query, and the learning summary.</div>
+<pre><code>-- ============================================================
+-- MICROSOFT FABRIC DATA WAREHOUSE
+-- File: fabric_star_schema_before_after_explained.sql
+-- Purpose:
+--   1) Build normalized source tables (3NF) - BEFORE state
+--   2) Run a BEFORE query directly on normalized tables
+--   3) Build star schema tables - AFTER state
+--   4) Run the same business question using the star schema
+--
+-- Fabric compatibility notes:
+--   - Use VARCHAR/CHAR instead of NVARCHAR/NCHAR
+--   - Do not use DEFAULT in CREATE TABLE
+--   - Do not use computed columns in CREATE TABLE
+--   - Avoid FORMAT(); use CONVERT(..., 112) for YYYYMMDD keys
+-- ============================================================
+
+-- ============================================================
+-- STEP 1: DROP EXISTING TABLES (clean slate)
+-- ============================================================
+DROP TABLE IF EXISTS dbo.FactSales;
+DROP TABLE IF EXISTS dbo.DimProduct;
+DROP TABLE IF EXISTS dbo.DimCustomer;
+DROP TABLE IF EXISTS dbo.DimDate;
+DROP TABLE IF EXISTS dbo.DimStore;
+DROP TABLE IF EXISTS dbo.DimPromotion;
+
+DROP TABLE IF EXISTS dbo.src_SalesOrderLine;
+DROP TABLE IF EXISTS dbo.src_SalesOrder;
+DROP TABLE IF EXISTS dbo.src_Promotion;
+DROP TABLE IF EXISTS dbo.src_Customer;
+DROP TABLE IF EXISTS dbo.src_Store;
+DROP TABLE IF EXISTS dbo.src_City;
+DROP TABLE IF EXISTS dbo.src_Product;
+DROP TABLE IF EXISTS dbo.src_Supplier;
+DROP TABLE IF EXISTS dbo.src_Category;
+
+-- ============================================================
+-- STEP 2: NORMALIZED SOURCE TABLES (3NF - BEFORE STATE)
+-- ============================================================
+-- In normalized design, data is split into many small related tables.
+-- This reduces duplication, but reporting queries require many joins.
+
+CREATE TABLE dbo.src_Category (
+    CategoryID   INT          NOT NULL,
+    CategoryName VARCHAR(100) NOT NULL,
+    Department   VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE dbo.src_Supplier (
+    SupplierID   INT          NOT NULL,
+    SupplierName VARCHAR(200) NOT NULL,
+    Country      VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE dbo.src_Product (
+    ProductID   INT           NOT NULL,
+    ProductName VARCHAR(200)  NOT NULL,
+    CategoryID  INT           NOT NULL,
+    SupplierID  INT           NOT NULL,
+    UnitCost    DECIMAL(10,2) NOT NULL,
+    UnitPrice   DECIMAL(10,2) NOT NULL,
+    Brand       VARCHAR(100)  NOT NULL
+);
+
+CREATE TABLE dbo.src_City (
+    CityID        INT          NOT NULL,
+    CityName      VARCHAR(100) NOT NULL,
+    StateProvince VARCHAR(100) NOT NULL,
+    Country       VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE dbo.src_Store (
+    StoreID       INT          NOT NULL,
+    StoreName     VARCHAR(200) NOT NULL,
+    CityID        INT          NOT NULL,
+    StoreType     VARCHAR(50)  NOT NULL,
+    OpenDate      DATE         NOT NULL,
+    SquareFootage INT          NOT NULL
+);
+
+CREATE TABLE dbo.src_Customer (
+    CustomerID  INT          NOT NULL,
+    FirstName   VARCHAR(100) NOT NULL,
+    LastName    VARCHAR(100) NOT NULL,
+    Email       VARCHAR(200) NOT NULL,
+    CityID      INT          NOT NULL,
+    LoyaltyTier VARCHAR(50)  NOT NULL,
+    BirthYear   INT          NOT NULL,
+    Gender      CHAR(1)      NOT NULL
+);
+
+CREATE TABLE dbo.src_Promotion (
+    PromotionID   INT           NOT NULL,
+    PromotionName VARCHAR(200)  NOT NULL,
+    DiscountPct   DECIMAL(5,2)  NOT NULL,
+    StartDate     DATE          NOT NULL,
+    EndDate       DATE          NOT NULL,
+    Channel       VARCHAR(100)  NOT NULL
+);
+
+CREATE TABLE dbo.src_SalesOrder (
+    OrderID     INT  NOT NULL,
+    OrderDate   DATE NOT NULL,
+    CustomerID  INT  NOT NULL,
+    StoreID     INT  NOT NULL,
+    PromotionID INT  NULL
+);
+
+CREATE TABLE dbo.src_SalesOrderLine (
+    OrderLineID INT           NOT NULL,
+    OrderID     INT           NOT NULL,
+    ProductID   INT           NOT NULL,
+    Quantity    INT           NOT NULL,
+    UnitPrice   DECIMAL(10,2) NOT NULL,
+    Discount    DECIMAL(5,2)  NOT NULL
+);
+
+-- ============================================================
+-- STEP 3: LOAD SAMPLE DATA INTO SOURCE TABLES
+-- ============================================================
+INSERT INTO dbo.src_Category VALUES
+(1, &#x27;Electronics&#x27;,   &#x27;Technology&#x27;),
+(2, &#x27;Clothing&#x27;,      &#x27;Apparel&#x27;),
+(3, &#x27;Home &amp; Garden&#x27;, &#x27;Living&#x27;),
+(4, &#x27;Sports&#x27;,        &#x27;Recreation&#x27;),
+(5, &#x27;Food &amp; Drink&#x27;,  &#x27;Grocery&#x27;);
+
+INSERT INTO dbo.src_Supplier VALUES
+(1, &#x27;TechSource Ltd&#x27;,      &#x27;USA&#x27;),
+(2, &#x27;FashionForward Co&#x27;,   &#x27;Italy&#x27;),
+(3, &#x27;HomeEssentials Inc&#x27;,  &#x27;Germany&#x27;),
+(4, &#x27;SportZone Global&#x27;,    &#x27;China&#x27;),
+(5, &#x27;FreshFoods Corp&#x27;,     &#x27;USA&#x27;);
+
+INSERT INTO dbo.src_Product VALUES
+(1,  &#x27;Wireless Headphones&#x27;, 1, 1, 45.00,  89.99,  &#x27;SoundWave&#x27;),
+(2,  &#x27;Smart Watch&#x27;,         1, 1, 120.00, 249.99, &#x27;TechGear&#x27;),
+(3,  &#x27;Bluetooth Speaker&#x27;,   1, 1, 30.00,  59.99,  &#x27;SoundWave&#x27;),
+(4,  &#x27;Running Jacket&#x27;,      2, 2, 25.00,  79.99,  &#x27;SpeedWear&#x27;),
+(5,  &#x27;Casual Jeans&#x27;,        2, 2, 18.00,  49.99,  &#x27;DenimCo&#x27;),
+(6,  &#x27;Garden Hose 50ft&#x27;,    3, 3, 12.00,  34.99,  &#x27;GardenPro&#x27;),
+(7,  &#x27;LED Desk Lamp&#x27;,       3, 3, 15.00,  39.99,  &#x27;BrightHome&#x27;),
+(8,  &#x27;Yoga Mat&#x27;,            4, 4, 10.00,  29.99,  &#x27;FlexFit&#x27;),
+(9,  &#x27;Running Shoes&#x27;,       4, 4, 40.00,  99.99,  &#x27;SpeedWear&#x27;),
+(10, &#x27;Protein Powder 2lb&#x27;,  5, 5, 18.00,  44.99,  &#x27;NutriMax&#x27;);
+
+INSERT INTO dbo.src_City VALUES
+(1, &#x27;New York&#x27;,    &#x27;New York&#x27;,   &#x27;USA&#x27;),
+(2, &#x27;Los Angeles&#x27;, &#x27;California&#x27;, &#x27;USA&#x27;),
+(3, &#x27;Chicago&#x27;,     &#x27;Illinois&#x27;,   &#x27;USA&#x27;),
+(4, &#x27;Houston&#x27;,     &#x27;Texas&#x27;,      &#x27;USA&#x27;),
+(5, &#x27;Miami&#x27;,       &#x27;Florida&#x27;,    &#x27;USA&#x27;);
+
+INSERT INTO dbo.src_Store VALUES
+(1, &#x27;NYC Flagship&#x27;,     1, &#x27;Flagship&#x27;,   &#x27;2015-03-01&#x27;, 12000),
+(2, &#x27;LA Megastore&#x27;,     2, &#x27;Megastore&#x27;,  &#x27;2017-06-15&#x27;, 18000),
+(3, &#x27;Chicago Downtown&#x27;, 3, &#x27;Standard&#x27;,   &#x27;2018-09-01&#x27;, 8500),
+(4, &#x27;Houston Mall&#x27;,     4, &#x27;Mall Kiosk&#x27;, &#x27;2020-01-10&#x27;, 3200),
+(5, &#x27;Miami Beach&#x27;,      5, &#x27;Standard&#x27;,   &#x27;2019-11-20&#x27;, 7800);
+
+INSERT INTO dbo.src_Customer VALUES
+(1,  &#x27;James&#x27;,    &#x27;Wilson&#x27;,   &#x27;jwilson@email.com&#x27;,    1, &#x27;Gold&#x27;,     1985, &#x27;M&#x27;),
+(2,  &#x27;Sophia&#x27;,   &#x27;Martinez&#x27;, &#x27;smartinez@email.com&#x27;,  2, &#x27;Platinum&#x27;, 1990, &#x27;F&#x27;),
+(3,  &#x27;Ethan&#x27;,    &#x27;Brown&#x27;,    &#x27;ebrown@email.com&#x27;,     3, &#x27;Silver&#x27;,   1978, &#x27;M&#x27;),
+(4,  &#x27;Olivia&#x27;,   &#x27;Davis&#x27;,    &#x27;odavis@email.com&#x27;,     4, &#x27;Bronze&#x27;,   2000, &#x27;F&#x27;),
+(5,  &#x27;Liam&#x27;,     &#x27;Garcia&#x27;,   &#x27;lgarcia@email.com&#x27;,    5, &#x27;Gold&#x27;,     1995, &#x27;M&#x27;),
+(6,  &#x27;Emma&#x27;,     &#x27;Taylor&#x27;,   &#x27;etaylor@email.com&#x27;,    1, &#x27;Platinum&#x27;, 1988, &#x27;F&#x27;),
+(7,  &#x27;Noah&#x27;,     &#x27;Anderson&#x27;, &#x27;nanderson@email.com&#x27;,  2, &#x27;Silver&#x27;,   1975, &#x27;M&#x27;),
+(8,  &#x27;Ava&#x27;,      &#x27;Thomas&#x27;,   &#x27;athomas@email.com&#x27;,    3, &#x27;Bronze&#x27;,   2003, &#x27;F&#x27;),
+(9,  &#x27;Mason&#x27;,    &#x27;Jackson&#x27;,  &#x27;mjackson@email.com&#x27;,   4, &#x27;Gold&#x27;,     1993, &#x27;M&#x27;),
+(10, &#x27;Isabella&#x27;, &#x27;White&#x27;,    &#x27;iwhite@email.com&#x27;,     5, &#x27;Silver&#x27;,   1982, &#x27;F&#x27;);
+
+INSERT INTO dbo.src_Promotion VALUES
+(1, &#x27;Summer Sale&#x27;,      15.00, &#x27;2024-06-01&#x27;, &#x27;2024-08-31&#x27;, &#x27;In-Store&#x27;),
+(2, &#x27;Black Friday&#x27;,     30.00, &#x27;2024-11-29&#x27;, &#x27;2024-11-30&#x27;, &#x27;Online &amp; In-Store&#x27;),
+(3, &#x27;Loyalty Reward&#x27;,   10.00, &#x27;2024-01-01&#x27;, &#x27;2024-12-31&#x27;, &#x27;App&#x27;),
+(4, &#x27;Clearance&#x27;,        40.00, &#x27;2024-07-15&#x27;, &#x27;2024-07-31&#x27;, &#x27;In-Store&#x27;),
+(5, &#x27;New Year Kickoff&#x27;, 20.00, &#x27;2024-01-01&#x27;, &#x27;2024-01-07&#x27;, &#x27;Online&#x27;);
+
+INSERT INTO dbo.src_SalesOrder VALUES
+(1001, &#x27;2024-01-03&#x27;, 1,  1, 5),
+(1002, &#x27;2024-01-15&#x27;, 2,  2, NULL),
+(1003, &#x27;2024-02-20&#x27;, 3,  3, 3),
+(1004, &#x27;2024-03-05&#x27;, 4,  4, NULL),
+(1005, &#x27;2024-06-12&#x27;, 5,  5, 1),
+(1006, &#x27;2024-07-22&#x27;, 6,  1, 4),
+(1007, &#x27;2024-08-08&#x27;, 7,  2, 1),
+(1008, &#x27;2024-09-18&#x27;, 8,  3, 3),
+(1009, &#x27;2024-11-29&#x27;, 9,  4, 2),
+(1010, &#x27;2024-12-15&#x27;, 10, 5, NULL);
+
+INSERT INTO dbo.src_SalesOrderLine VALUES
+(1,  1001, 1,  2, 89.99,  0.00),
+(2,  1001, 8,  1, 29.99,  0.00),
+(3,  1002, 2,  1, 249.99, 0.00),
+(4,  1002, 4,  2, 79.99,  0.00),
+(5,  1003, 5,  3, 49.99,  10.00),
+(6,  1003, 6,  1, 34.99,  10.00),
+(7,  1004, 7,  2, 39.99,  0.00),
+(8,  1005, 9,  1, 99.99,  15.00),
+(9,  1005, 3,  2, 59.99,  15.00),
+(10, 1006, 10, 4, 44.99,  40.00),
+(11, 1007, 1,  1, 89.99,  15.00),
+(12, 1008, 2,  1, 249.99, 10.00),
+(13, 1009, 9,  2, 99.99,  30.00),
+(14, 1009, 8,  3, 29.99,  30.00),
+(15, 1010, 4,  2, 79.99,  0.00);
+
+-- ============================================================
+-- STEP 3A: BEFORE STAR SCHEMA QUERY - NORMALIZED 3NF QUERY
+-- ============================================================
+-- Business question:
+--   What is monthly revenue and profit by product category and state?
+--
+-- In the normalized model, the query must join many tables:
+--   OrderLine -&gt; Order -&gt; Product -&gt; Category -&gt; Store -&gt; City
+-- This is correct, but less friendly for analysts and BI reporting.
+
+SELECT
+    YEAR(o.OrderDate) AS SalesYear,
+    MONTH(o.OrderDate) AS SalesMonth,
+    c.CategoryName,
+    ci.StateProvince,
+    COUNT(DISTINCT o.OrderID) AS TotalOrders,
+    SUM(ol.Quantity) AS UnitsSold,
+    SUM(ROUND(ol.Quantity * ol.UnitPrice, 2)) AS GrossRevenue,
+    SUM(ROUND(ol.Quantity * ol.UnitPrice * (1 - ol.Discount / 100), 2)) AS NetRevenue,
+    SUM(ROUND((ol.Quantity * ol.UnitPrice * (1 - ol.Discount / 100)) - (ol.Quantity * p.UnitCost), 2)) AS GrossProfit
+FROM dbo.src_SalesOrderLine ol
+JOIN dbo.src_SalesOrder o ON ol.OrderID = o.OrderID
+JOIN dbo.src_Product p ON ol.ProductID = p.ProductID
+JOIN dbo.src_Category c ON p.CategoryID = c.CategoryID
+JOIN dbo.src_Store st ON o.StoreID = st.StoreID
+JOIN dbo.src_City ci ON st.CityID = ci.CityID
+GROUP BY
+    YEAR(o.OrderDate),
+    MONTH(o.OrderDate),
+    c.CategoryName,
+    ci.StateProvince
+ORDER BY
+    SalesYear,
+    SalesMonth,
+    NetRevenue DESC;
+
+-- ============================================================
+-- STEP 4: BUILD THE STAR SCHEMA - DIMENSION TABLES
+-- ============================================================
+-- Star schema creates reporting-friendly tables:
+--   - Dimensions store descriptive context: Date, Product, Customer, Store, Promotion
+--   - Fact table stores business events and numeric measures: Sales
+
+CREATE TABLE dbo.DimDate (
+    DateKey       INT          NOT NULL, -- YYYYMMDD key used by the fact table
+    FullDate      DATE         NOT NULL,
+    DayOfWeek     VARCHAR(10)  NOT NULL,
+    DayNumber     INT          NOT NULL,
+    WeekNumber    INT          NOT NULL,
+    MonthNumber   INT          NOT NULL,
+    MonthName     VARCHAR(10)  NOT NULL,
+    Quarter       INT          NOT NULL,
+    QuarterName   CHAR(2)      NOT NULL,
+    Year          INT          NOT NULL,
+    IsWeekend     BIT          NOT NULL,
+    FiscalYear    INT          NOT NULL,
+    FiscalQuarter INT          NOT NULL
+);
+
+INSERT INTO dbo.DimDate VALUES
+(20240103, &#x27;2024-01-03&#x27;, &#x27;Wednesday&#x27;, 3,  1,  1,  &#x27;January&#x27;,   1, &#x27;Q1&#x27;, 2024, 0, 2024, 1),
+(20240115, &#x27;2024-01-15&#x27;, &#x27;Monday&#x27;,    15, 3,  1,  &#x27;January&#x27;,   1, &#x27;Q1&#x27;, 2024, 0, 2024, 1),
+(20240220, &#x27;2024-02-20&#x27;, &#x27;Tuesday&#x27;,   20, 8,  2,  &#x27;February&#x27;,  1, &#x27;Q1&#x27;, 2024, 0, 2024, 1),
+(20240305, &#x27;2024-03-05&#x27;, &#x27;Tuesday&#x27;,   5,  10, 3,  &#x27;March&#x27;,     1, &#x27;Q1&#x27;, 2024, 0, 2024, 1),
+(20240612, &#x27;2024-06-12&#x27;, &#x27;Wednesday&#x27;, 12, 24, 6,  &#x27;June&#x27;,      2, &#x27;Q2&#x27;, 2024, 0, 2024, 2),
+(20240722, &#x27;2024-07-22&#x27;, &#x27;Monday&#x27;,    22, 30, 7,  &#x27;July&#x27;,      3, &#x27;Q3&#x27;, 2024, 0, 2024, 3),
+(20240808, &#x27;2024-08-08&#x27;, &#x27;Thursday&#x27;,  8,  32, 8,  &#x27;August&#x27;,    3, &#x27;Q3&#x27;, 2024, 0, 2024, 3),
+(20240918, &#x27;2024-09-18&#x27;, &#x27;Wednesday&#x27;, 18, 38, 9,  &#x27;September&#x27;, 3, &#x27;Q3&#x27;, 2024, 0, 2024, 3),
+(20241129, &#x27;2024-11-29&#x27;, &#x27;Friday&#x27;,    29, 48, 11, &#x27;November&#x27;,  4, &#x27;Q4&#x27;, 2024, 0, 2024, 4),
+(20241215, &#x27;2024-12-15&#x27;, &#x27;Sunday&#x27;,    15, 51, 12, &#x27;December&#x27;,  4, &#x27;Q4&#x27;, 2024, 1, 2024, 4);
+
+CREATE TABLE dbo.DimProduct (
+    ProductKey      INT           NOT NULL,
+    ProductID       INT           NOT NULL,
+    ProductName     VARCHAR(200)  NOT NULL,
+    Brand           VARCHAR(100)  NOT NULL,
+    CategoryName    VARCHAR(100)  NOT NULL,
+    Department      VARCHAR(100)  NOT NULL,
+    SupplierName    VARCHAR(200)  NOT NULL,
+    SupplierCountry VARCHAR(100)  NOT NULL,
+    UnitCost        DECIMAL(10,2) NOT NULL,
+    ListPrice       DECIMAL(10,2) NOT NULL,
+    GrossMarginPct  DECIMAL(5,2)  NOT NULL
+);
+
+-- DimProduct denormalizes Product + Category + Supplier into one reporting table.
+INSERT INTO dbo.DimProduct
+(ProductKey, ProductID, ProductName, Brand, CategoryName, Department, SupplierName, SupplierCountry, UnitCost, ListPrice, GrossMarginPct)
+SELECT
+    p.ProductID,
+    p.ProductID,
+    p.ProductName,
+    p.Brand,
+    c.CategoryName,
+    c.Department,
+    s.SupplierName,
+    s.Country,
+    p.UnitCost,
+    p.UnitPrice,
+    CAST(((p.UnitPrice - p.UnitCost) / NULLIF(p.UnitPrice, 0) * 100) AS DECIMAL(5,2))
+FROM dbo.src_Product p
+JOIN dbo.src_Category c ON p.CategoryID = c.CategoryID
+JOIN dbo.src_Supplier s ON p.SupplierID = s.SupplierID;
+
+CREATE TABLE dbo.DimCustomer (
+    CustomerKey   INT          NOT NULL,
+    CustomerID    INT          NOT NULL,
+    FullName      VARCHAR(200) NOT NULL,
+    Email         VARCHAR(200) NOT NULL,
+    Gender        CHAR(1)      NOT NULL,
+    BirthYear     INT          NOT NULL,
+    AgeGroup      VARCHAR(20)  NOT NULL,
+    LoyaltyTier   VARCHAR(50)  NOT NULL,
+    City          VARCHAR(100) NOT NULL,
+    StateProvince VARCHAR(100) NOT NULL,
+    Country       VARCHAR(100) NOT NULL
+);
+
+-- DimCustomer denormalizes Customer + City.
+INSERT INTO dbo.DimCustomer
+(CustomerKey, CustomerID, FullName, Email, Gender, BirthYear, AgeGroup, LoyaltyTier, City, StateProvince, Country)
+SELECT
+    cu.CustomerID,
+    cu.CustomerID,
+    CONCAT(cu.FirstName, &#x27; &#x27;, cu.LastName),
+    cu.Email,
+    cu.Gender,
+    cu.BirthYear,
+    CASE
+        WHEN (2024 - cu.BirthYear) &lt; 25 THEN &#x27;18-24&#x27;
+        WHEN (2024 - cu.BirthYear) &lt; 35 THEN &#x27;25-34&#x27;
+        WHEN (2024 - cu.BirthYear) &lt; 45 THEN &#x27;35-44&#x27;
+        WHEN (2024 - cu.BirthYear) &lt; 55 THEN &#x27;45-54&#x27;
+        ELSE &#x27;55+&#x27;
+    END,
+    cu.LoyaltyTier,
+    ci.CityName,
+    ci.StateProvince,
+    ci.Country
+FROM dbo.src_Customer cu
+JOIN dbo.src_City ci ON cu.CityID = ci.CityID;
+
+CREATE TABLE dbo.DimStore (
+    StoreKey      INT          NOT NULL,
+    StoreID       INT          NOT NULL,
+    StoreName     VARCHAR(200) NOT NULL,
+    StoreType     VARCHAR(50)  NOT NULL,
+    City          VARCHAR(100) NOT NULL,
+    StateProvince VARCHAR(100) NOT NULL,
+    Country       VARCHAR(100) NOT NULL,
+    OpenDate      DATE         NOT NULL,
+    SquareFootage INT          NOT NULL,
+    SizeCategory  VARCHAR(20)  NOT NULL
+);
+
+-- DimStore denormalizes Store + City.
+INSERT INTO dbo.DimStore
+(StoreKey, StoreID, StoreName, StoreType, City, StateProvince, Country, OpenDate, SquareFootage, SizeCategory)
+SELECT
+    st.StoreID,
+    st.StoreID,
+    st.StoreName,
+    st.StoreType,
+    ci.CityName,
+    ci.StateProvince,
+    ci.Country,
+    st.OpenDate,
+    st.SquareFootage,
+    CASE
+        WHEN st.SquareFootage &lt; 5000 THEN &#x27;Small&#x27;
+        WHEN st.SquareFootage &lt; 10000 THEN &#x27;Medium&#x27;
+        ELSE &#x27;Large&#x27;
+    END
+FROM dbo.src_Store st
+JOIN dbo.src_City ci ON st.CityID = ci.CityID;
+
+CREATE TABLE dbo.DimPromotion (
+    PromotionKey  INT           NOT NULL,
+    PromotionID   INT           NOT NULL,
+    PromotionName VARCHAR(200)  NOT NULL,
+    DiscountPct   DECIMAL(5,2)  NOT NULL,
+    DiscountTier  VARCHAR(20)   NOT NULL,
+    Channel       VARCHAR(100)  NOT NULL,
+    StartDate     DATE          NOT NULL,
+    EndDate       DATE          NOT NULL,
+    DurationDays  INT           NOT NULL
+);
+
+INSERT INTO dbo.DimPromotion
+(PromotionKey, PromotionID, PromotionName, DiscountPct, DiscountTier, Channel, StartDate, EndDate, DurationDays)
+SELECT
+    PromotionID,
+    PromotionID,
+    PromotionName,
+    DiscountPct,
+    CASE
+        WHEN DiscountPct &gt;= 30 THEN &#x27;High&#x27;
+        WHEN DiscountPct &gt;= 15 THEN &#x27;Medium&#x27;
+        ELSE &#x27;Low&#x27;
+    END,
+    Channel,
+    StartDate,
+    EndDate,
+    DATEDIFF(DAY, StartDate, EndDate) + 1
+FROM dbo.src_Promotion;
+
+-- ============================================================
+-- STEP 5: BUILD THE FACT TABLE
+-- ============================================================
+-- FactSales stores numeric measures at the grain of one order line.
+-- Grain: one row per sales order line.
+-- Measures: quantity, revenue, discount, cost, profit.
+
+CREATE TABLE dbo.FactSales (
+    SalesKey         BIGINT        NOT NULL,
+    DateKey          INT           NOT NULL,
+    ProductKey       INT           NOT NULL,
+    CustomerKey      INT           NOT NULL,
+    StoreKey         INT           NOT NULL,
+    PromotionKey     INT           NULL,
+    OrderID          INT           NOT NULL, -- Degenerate dimension: useful transaction identifier
+    OrderLineID      INT           NOT NULL, -- Degenerate dimension: useful transaction line identifier
+    QuantitySold     INT           NOT NULL,
+    UnitPrice        DECIMAL(10,2) NOT NULL,
+    DiscountPct      DECIMAL(5,2)  NOT NULL,
+    DiscountAmount   DECIMAL(10,2) NOT NULL,
+    GrossSalesAmount DECIMAL(10,2) NOT NULL,
+    NetSalesAmount   DECIMAL(10,2) NOT NULL,
+    CostAmount       DECIMAL(10,2) NOT NULL,
+    GrossProfit      DECIMAL(10,2) NOT NULL,
+    GrossProfitPct   DECIMAL(5,2)  NOT NULL
+);
+
+INSERT INTO dbo.FactSales
+SELECT
+    ROW_NUMBER() OVER (ORDER BY ol.OrderLineID) AS SalesKey,
+    CAST(CONVERT(VARCHAR(8), o.OrderDate, 112) AS INT) AS DateKey,
+    ol.ProductID AS ProductKey,
+    o.CustomerID AS CustomerKey,
+    o.StoreID AS StoreKey,
+    o.PromotionID AS PromotionKey,
+    o.OrderID,
+    ol.OrderLineID,
+    ol.Quantity AS QuantitySold,
+    ol.UnitPrice,
+    ol.Discount AS DiscountPct,
+    ROUND(ol.Quantity * ol.UnitPrice * (ol.Discount / 100), 2) AS DiscountAmount,
+    ROUND(ol.Quantity * ol.UnitPrice, 2) AS GrossSalesAmount,
+    ROUND(ol.Quantity * ol.UnitPrice * (1 - ol.Discount / 100), 2) AS NetSalesAmount,
+    ROUND(ol.Quantity * p.UnitCost, 2) AS CostAmount,
+    ROUND((ol.Quantity * ol.UnitPrice * (1 - ol.Discount / 100)) - (ol.Quantity * p.UnitCost), 2) AS GrossProfit,
+    ROUND((((ol.Quantity * ol.UnitPrice * (1 - ol.Discount / 100)) - (ol.Quantity * p.UnitCost))
+        / NULLIF((ol.Quantity * ol.UnitPrice * (1 - ol.Discount / 100)), 0)) * 100, 2) AS GrossProfitPct
+FROM dbo.src_SalesOrderLine ol
+JOIN dbo.src_SalesOrder o ON ol.OrderID = o.OrderID
+JOIN dbo.src_Product p ON ol.ProductID = p.ProductID;
+
+-- ============================================================
+-- STEP 6: AFTER STAR SCHEMA QUERY - SAME BUSINESS QUESTION
+-- ============================================================
+-- Same question as STEP 3A:
+--   What is monthly revenue and profit by product category and state?
+--
+-- In the star schema, the query is easier:
+--   FactSales -&gt; DimDate -&gt; DimProduct -&gt; DimStore
+-- The descriptive columns already exist in dimensions.
+
+SELECT
+    d.Year AS SalesYear,
+    d.MonthNumber AS SalesMonth,
+    p.CategoryName,
+    s.StateProvince,
+    COUNT(DISTINCT f.OrderID) AS TotalOrders,
+    SUM(f.QuantitySold) AS UnitsSold,
+    SUM(f.GrossSalesAmount) AS GrossRevenue,
+    SUM(f.NetSalesAmount) AS NetRevenue,
+    SUM(f.GrossProfit) AS GrossProfit
+FROM dbo.FactSales f
+JOIN dbo.DimDate d ON f.DateKey = d.DateKey
+JOIN dbo.DimProduct p ON f.ProductKey = p.ProductKey
+JOIN dbo.DimStore s ON f.StoreKey = s.StoreKey
+GROUP BY
+    d.Year,
+    d.MonthNumber,
+    p.CategoryName,
+    s.StateProvince
+ORDER BY
+    SalesYear,
+    SalesMonth,
+    NetRevenue DESC;
+
+-- ============================================================
+-- STEP 7: EXTRA STAR SCHEMA ANALYTICAL QUERIES
+-- ============================================================
+
+-- Q1: Monthly revenue and profit summary
+SELECT
+    d.Year,
+    d.MonthName,
+    d.MonthNumber,
+    COUNT(DISTINCT f.OrderID) AS TotalOrders,
+    SUM(f.QuantitySold) AS UnitsSold,
+    SUM(f.GrossSalesAmount) AS GrossRevenue,
+    SUM(f.NetSalesAmount) AS NetRevenue,
+    SUM(f.GrossProfit) AS GrossProfit,
+    ROUND(SUM(f.GrossProfit) / NULLIF(SUM(f.NetSalesAmount), 0) * 100, 1) AS ProfitMarginPct
+FROM dbo.FactSales f
+JOIN dbo.DimDate d ON f.DateKey = d.DateKey
+GROUP BY d.Year, d.MonthName, d.MonthNumber
+ORDER BY d.Year, d.MonthNumber;
+
+-- Q2: Top 5 products by net revenue
+SELECT TOP 5
+    p.ProductName,
+    p.CategoryName,
+    p.Brand,
+    SUM(f.QuantitySold) AS UnitsSold,
+    SUM(f.NetSalesAmount) AS NetRevenue,
+    SUM(f.GrossProfit) AS GrossProfit,
+    ROUND(AVG(f.GrossProfitPct), 1) AS AvgMarginPct
+FROM dbo.FactSales f
+JOIN dbo.DimProduct p ON f.ProductKey = p.ProductKey
+GROUP BY p.ProductName, p.CategoryName, p.Brand
+ORDER BY NetRevenue DESC;
+
+-- Q3: Promotion effectiveness
+SELECT
+    COALESCE(pr.PromotionName, &#x27;No Promotion&#x27;) AS Promotion,
+    COALESCE(pr.Channel, &#x27;N/A&#x27;) AS Channel,
+    COALESCE(pr.DiscountTier, &#x27;N/A&#x27;) AS DiscountTier,
+    COUNT(DISTINCT f.OrderID) AS Orders,
+    SUM(f.DiscountAmount) AS TotalDiscountGiven,
+    SUM(f.NetSalesAmount) AS NetRevenue,
+    SUM(f.GrossProfit) AS GrossProfit
+FROM dbo.FactSales f
+LEFT JOIN dbo.DimPromotion pr ON f.PromotionKey = pr.PromotionKey
+GROUP BY pr.PromotionName, pr.Channel, pr.DiscountTier
+ORDER BY NetRevenue DESC;
+
+-- ============================================================
+-- LEARNING SUMMARY
+-- ============================================================
+-- BEFORE / 3NF:
+--   - Good for operational systems and data integrity
+--   - Reporting requires many joins
+--   - Business columns are spread across multiple tables
+--
+-- AFTER / STAR SCHEMA:
+--   - Good for analytics and BI tools such as Power BI
+--   - Fact table stores measures
+--   - Dimension tables store business descriptions
+--   - Queries are simpler and easier for analysts
+-- ============================================================
+</code></pre>
+</section>
+</main>
+<footer>Classroom Lab Guide generated for Microsoft Fabric Warehouse data warehousing practice.</footer>
+</body>
+</html>
