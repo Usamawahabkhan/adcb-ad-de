@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fabric Warehouse Lab: Slowly Changing Dimensions</title>
+<style>
+:root { --blue:#1654d1; --purple:#5c2d91; --dark:#123047; --bg:#f6f8fb; --panel:#fff; --border:#d7dee8; --code:#0f172a; --codetext:#e5e7eb; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:"Segoe UI", Arial, sans-serif; background:var(--bg); color:#1f2937; line-height:1.6; }
+header { background:linear-gradient(135deg,var(--blue),var(--purple)); color:white; padding:44px 28px; text-align:center; }
+header h1 { margin:0; font-size:2.25rem; }
+header p { max-width:1000px; margin:12px auto 0; font-size:1.05rem; }
+main { max-width:1220px; margin:auto; padding:26px; }
+section { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:24px; margin:18px 0; box-shadow:0 2px 8px rgba(15,23,42,.05); }
+h2 { color:var(--dark); margin-top:0; border-bottom:2px solid #e5f2fb; padding-bottom:8px; }
+h3 { color:#23445f; }
+.badge { display:inline-block; background:#eef6fc; color:#123047; border:1px solid #c7e3f7; border-radius:999px; padding:4px 10px; margin:4px; font-weight:600; }
+.success { background:#eef8ef; border-left:5px solid #21a366; padding:14px 16px; border-radius:8px; margin:14px 0; }
+.warning { background:#fff0ed; border-left:5px solid #d83b01; padding:14px 16px; border-radius:8px; margin:14px 0; }
+.note { background:#fff8df; border-left:5px solid #f2c94c; padding:14px 16px; border-radius:8px; margin:14px 0; }
+table { width:100%; border-collapse:collapse; margin:14px 0; }
+th,td { border:1px solid var(--border); padding:10px 12px; text-align:left; vertical-align:top; }
+th { background:#eef6fc; color:var(--dark); }
+pre { background:var(--code); color:var(--codetext); padding:18px; border-radius:12px; overflow:auto; white-space:pre; font-family:Consolas,"Courier New",monospace; font-size:.84rem; line-height:1.45; border:1px solid #263145; }
+code { font-family:Consolas,"Courier New",monospace; }
+.schema { background:#f8fafc; border:1px dashed #9fb3c8; border-radius:12px; padding:16px; font-family:Consolas,"Courier New",monospace; white-space:pre; overflow-x:auto; }
+footer { text-align:center; color:#5b6472; padding:30px; }
+a { color:#1654d1; text-decoration:none; }
+a:hover { text-decoration:underline; }
+@media print { body{background:white} section{box-shadow:none; page-break-inside:avoid} pre{white-space:pre-wrap} header{print-color-adjust:exact;-webkit-print-color-adjust:exact} }
+</style>
+</head>
+<body>
+<header>
+<h1>Slowly Changing Dimensions (SCDs)</h1>
+<p>Step-by-step Microsoft Fabric Warehouse lab with scripts embedded under each step</p>
+<p><span class="badge">Fabric Warehouse</span><span class="badge">SCD Type 0</span><span class="badge">SCD Type 1</span><span class="badge">SCD Type 2</span><span class="badge">SCD Type 3</span><span class="badge">SCD Type 4</span><span class="badge">SCD Type 6</span></p>
+</header>
+<main>
+<section id="overview">
+<h2>Lab Overview</h2>
+<table>
+<thead><tr><th>Field</th><th>Value</th></tr></thead>
+<tbody>
+<tr><td>Lab title</td><td>Slowly Changing Dimensions in Microsoft Fabric Warehouse</td></tr>
+<tr><td>Estimated duration</td><td>75–90 minutes</td></tr>
+<tr><td>Modality</td><td>Hands-on SQL warehousing lab</td></tr>
+<tr><td>Primary Fabric items</td><td>Warehouse, SQL Query Editor</td></tr>
+<tr><td>Scenario</td><td>Customer profile changes over time: city, email, and loyalty tier changes.</td></tr>
+</tbody>
+</table>
+<div class="success"><strong>Format:</strong> Each step has its own script. The lab does not place one giant script only at the end.</div>
+</section>
+
+<section id="scenario">
+<h2>Business Scenario</h2>
+<p>A retail company receives periodic customer snapshots from an operational customer system. Customer attributes can change over time. The data warehouse team must decide how to store those changes for reporting.</p>
+<div class="schema">Batch 1 - initial source extract
+Customer 1001: New York, Silver
+Customer 1002: Los Angeles, Gold
+Customer 1003: Chicago, Bronze
+
+Batch 2 - later source extract
+Customer 1001: Boston, Gold       -- city and loyalty changed
+Customer 1002: new email address  -- email changed
+Customer 1003: no change
+Customer 1004: new customer</div>
+</section>
+
+<section id="objectives">
+<h2>Learning Objectives</h2>
+<ul>
+<li>Understand what Slowly Changing Dimensions are and why they matter in data warehousing.</li>
+<li>Compare SCD Type 0, Type 1, Type 2, Type 3, Type 4, and Type 6.</li>
+<li>Create sample customer snapshots in Microsoft Fabric Warehouse.</li>
+<li>Apply each SCD pattern using Fabric-friendly SQL.</li>
+<li>Understand how current-state and history-preserving dimensions behave differently.</li>
+</ul>
+</section>
+
+<section id="definitions">
+<h2>Basic Definitions for Each SCD Type</h2>
+<table>
+<thead><tr><th>SCD type</th><th>Pattern</th><th>Definition</th><th>Example use case</th></tr></thead>
+<tbody>
+<tr><td><strong>SCD Type 0</strong></td><td>Fixed attribute</td><td>The original value is preserved and not changed by later source updates.</td><td>Original signup city, original birth date, first purchase date.</td></tr>
+<tr><td><strong>SCD Type 1</strong></td><td>Overwrite</td><td>The dimension row is updated in place and history is not preserved.</td><td>Correcting misspelled names, latest email address, latest phone number.</td></tr>
+<tr><td><strong>SCD Type 2</strong></td><td>Full history</td><td>A new row is inserted for each meaningful change. Old rows are expired with effective dates and current flag.</td><td>Customer address history, loyalty tier history, product category history.</td></tr>
+<tr><td><strong>SCD Type 3</strong></td><td>Limited history</td><td>One or a small number of previous values are stored in extra columns on the same row.</td><td>Current city plus previous city.</td></tr>
+<tr><td><strong>SCD Type 4</strong></td><td>Separate history table</td><td>The current dimension table stores only current values. A separate history table stores older values.</td><td>High-volume audit history where current queries must stay simple.</td></tr>
+<tr><td><strong>SCD Type 6</strong></td><td>Hybrid</td><td>Combines Type 1, Type 2, and Type 3 ideas, commonly using historical rows plus previous/current attributes.</td><td>Advanced dimensions where both history and current/previous values are useful.</td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="fabric-rules">
+<h2>Microsoft Fabric Warehouse Compatibility Notes</h2>
+<ul>
+<li>Use <code>VARCHAR</code> instead of <code>NVARCHAR</code>.</li>
+<li>Do not use <code>IDENTITY</code> in this beginner classroom lab.</li>
+<li>Do not use <code>DEFAULT</code> constraints in <code>CREATE TABLE</code>.</li>
+<li>Use explicit inserts and explicit surrogate keys generated with <code>ROW_NUMBER()</code>.</li>
+<li>Use lab-owned tables only. These scripts do not modify sample Warehouse tables.</li>
+</ul>
+</section>
+
+<section id="flow">
+<h2>Lab Flow</h2>
+<div class="schema">Source snapshots
+      ↓
+Batch 1 initial load
+      ↓
+Create SCD Type 0, 1, 2, 3, 4, 6 dimensions
+      ↓
+Batch 2 changed source data
+      ↓
+Apply each SCD pattern
+      ↓
+Compare row counts, current records, and history behavior</div>
+</section>
+
+<section id="step-index">
+<h2>Step Index</h2>
+<ol>
+<li><a href="#step-0">Step 0: Clean start</a></li>
+<li><a href="#step-1">Step 1: Create source snapshot table and load Batch 1</a></li>
+<li><a href="#step-2">Step 2: SCD Type 0 initial load</a></li>
+<li><a href="#step-3">Step 3: SCD Type 1 initial load</a></li>
+<li><a href="#step-4">Step 4: SCD Type 2 initial load</a></li>
+<li><a href="#step-5">Step 5: SCD Type 3 initial load</a></li>
+<li><a href="#step-6">Step 6: SCD Type 4 initial load</a></li>
+<li><a href="#step-7">Step 7: SCD Type 6 initial load</a></li>
+<li><a href="#step-8">Step 8: Load Batch 2 source changes</a></li>
+<li><a href="#step-9">Step 9: Apply SCD Type 0</a></li>
+<li><a href="#step-10">Step 10: Apply SCD Type 1</a></li>
+<li><a href="#step-11">Step 11: Apply SCD Type 2</a></li>
+<li><a href="#step-12">Step 12: Apply SCD Type 3</a></li>
+<li><a href="#step-13">Step 13: Apply SCD Type 4</a></li>
+<li><a href="#step-14">Step 14: Apply SCD Type 6</a></li>
+<li><a href="#step-15">Step 15: Final comparison and audit</a></li>
+</ol>
+</section>
+
+
+<section id="step-0">
+<h2>Step 0: Clean start</h2>
+<p><strong>Objective:</strong> Drop prior lab tables so the lab can be rerun safely.</p>
+<h3>Script for this step</h3>
+<pre><code>DROP TABLE IF EXISTS dbo.DimCustomer_Type6;
+DROP TABLE IF EXISTS dbo.DimCustomer_Type4_History;
+DROP TABLE IF EXISTS dbo.DimCustomer_Type4_Current;
+DROP TABLE IF EXISTS dbo.DimCustomer_Type3;
+DROP TABLE IF EXISTS dbo.DimCustomer_Type2;
+DROP TABLE IF EXISTS dbo.DimCustomer_Type1;
+DROP TABLE IF EXISTS dbo.DimCustomer_Type0;
+DROP TABLE IF EXISTS dbo.stage_customer_snapshot;</code></pre>
+<h3>Expected result</h3>
+<p>All previous SCD lab tables are removed if they exist.</p>
+</section>
+
+<section id="step-1">
+<h2>Step 1: Create source snapshot table and load Batch 1</h2>
+<p><strong>Objective:</strong> Create a source-like customer snapshot table and load the first extract.</p>
+<h3>Script for this step</h3>
+<pre><code>CREATE TABLE dbo.stage_customer_snapshot (
+    BatchID             INT          NOT NULL,
+    BusinessCustomerID  INT          NOT NULL,
+    FullName            VARCHAR(200) NOT NULL,
+    Email               VARCHAR(200) NOT NULL,
+    City                VARCHAR(100) NOT NULL,
+    LoyaltyTier         VARCHAR(50)  NOT NULL,
+    SourceEffectiveDate DATE         NOT NULL
+);
+
+-- Batch 1: Initial customer extract from the source system
+INSERT INTO dbo.stage_customer_snapshot VALUES
+(1, 1001, &#x27;James Wilson&#x27;,    &#x27;james.wilson@example.com&#x27;,    &#x27;New York&#x27;,    &#x27;Silver&#x27;, &#x27;2024-01-01&#x27;),
+(1, 1002, &#x27;Sophia Martinez&#x27;, &#x27;sophia.martinez@example.com&#x27;, &#x27;Los Angeles&#x27;, &#x27;Gold&#x27;,   &#x27;2024-01-01&#x27;),
+(1, 1003, &#x27;Ethan Brown&#x27;,     &#x27;ethan.brown@example.com&#x27;,     &#x27;Chicago&#x27;,     &#x27;Bronze&#x27;, &#x27;2024-01-01&#x27;);
+
+SELECT *
+FROM dbo.stage_customer_snapshot
+ORDER BY BatchID, BusinessCustomerID;</code></pre>
+<h3>Expected result</h3>
+<p>Three source customer rows are visible for BatchID 1.</p>
+</section>
+
+<section id="step-2">
+<h2>Step 2: SCD Type 0 initial load</h2>
+<p><strong>Objective:</strong> Create a fixed-value dimension where selected attributes never change.</p>
+<h3>Script for this step</h3>
+<pre><code>CREATE TABLE dbo.DimCustomer_Type0 (
+    CustomerKey         INT          NOT NULL,
+    BusinessCustomerID  INT          NOT NULL,
+    FullName            VARCHAR(200) NOT NULL,
+    OriginalCity        VARCHAR(100) NOT NULL,
+    OriginalLoyaltyTier VARCHAR(50)  NOT NULL,
+    CreatedDate         DATE         NOT NULL
+);
+
+INSERT INTO dbo.DimCustomer_Type0
+SELECT
+    ROW_NUMBER() OVER (ORDER BY BusinessCustomerID) AS CustomerKey,
+    BusinessCustomerID,
+    FullName,
+    City AS OriginalCity,
+    LoyaltyTier AS OriginalLoyaltyTier,
+    SourceEffectiveDate AS CreatedDate
+FROM dbo.stage_customer_snapshot
+WHERE BatchID = 1;
+
+SELECT *
+FROM dbo.DimCustomer_Type0
+ORDER BY BusinessCustomerID;</code></pre>
+<h3>Expected result</h3>
+<p>Three Type 0 rows are inserted with original city and original loyalty tier.</p>
+</section>
+
+<section id="step-3">
+<h2>Step 3: SCD Type 1 initial load</h2>
+<p><strong>Objective:</strong> Create an overwrite dimension where changes replace older values.</p>
+<h3>Script for this step</h3>
+<pre><code>CREATE TABLE dbo.DimCustomer_Type1 (
+    CustomerKey         INT          NOT NULL,
+    BusinessCustomerID  INT          NOT NULL,
+    FullName            VARCHAR(200) NOT NULL,
+    Email               VARCHAR(200) NOT NULL,
+    City                VARCHAR(100) NOT NULL,
+    LoyaltyTier         VARCHAR(50)  NOT NULL,
+    LastUpdatedDate     DATE         NOT NULL
+);
+
+INSERT INTO dbo.DimCustomer_Type1
+SELECT
+    ROW_NUMBER() OVER (ORDER BY BusinessCustomerID) AS CustomerKey,
+    BusinessCustomerID,
+    FullName,
+    Email,
+    City,
+    LoyaltyTier,
+    SourceEffectiveDate AS LastUpdatedDate
+FROM dbo.stage_customer_snapshot
+WHERE BatchID = 1;
+
+SELECT *
+FROM dbo.DimCustomer_Type1
+ORDER BY BusinessCustomerID;</code></pre>
+<h3>Expected result</h3>
+<p>Three Type 1 current rows are inserted.</p>
+</section>
+
+<section id="step-4">
+<h2>Step 4: SCD Type 2 initial load</h2>
+<p><strong>Objective:</strong> Create a full-history dimension with current flag and effective dates.</p>
+<h3>Script for this step</h3>
+<pre><code>CREATE TABLE dbo.DimCustomer_Type2 (
+    CustomerKey         INT          NOT NULL,
+    BusinessCustomerID  INT          NOT NULL,
+    FullName            VARCHAR(200) NOT NULL,
+    Email               VARCHAR(200) NOT NULL,
+    City                VARCHAR(100) NOT NULL,
+    LoyaltyTier         VARCHAR(50)  NOT NULL,
+    EffectiveStartDate  DATE         NOT NULL,
+    EffectiveEndDate    DATE         NULL,
+    IsCurrent           INT          NOT NULL
+);
+
+INSERT INTO dbo.DimCustomer_Type2
+SELECT
+    ROW_NUMBER() OVER (ORDER BY BusinessCustomerID) AS CustomerKey,
+    BusinessCustomerID,
+    FullName,
+    Email,
+    City,
+    LoyaltyTier,
+    SourceEffectiveDate AS EffectiveStartDate,
+    CAST(NULL AS DATE) AS EffectiveEndDate,
+    1 AS IsCurrent
+FROM dbo.stage_customer_snapshot
+WHERE BatchID = 1;
+
+SELECT *
+FROM dbo.DimCustomer_Type2
+ORDER BY BusinessCustomerID, EffectiveStartDate;</code></pre>
+<h3>Expected result</h3>
+<p>Three current Type 2 rows are inserted with IsCurrent = 1.</p>
+</section>
+
+<section id="step-5">
+<h2>Step 5: SCD Type 3 initial load</h2>
+<p><strong>Objective:</strong> Create a limited-history dimension that stores current and previous city.</p>
+<h3>Script for this step</h3>
+<pre><code>CREATE TABLE dbo.DimCustomer_Type3 (
+    CustomerKey         INT          NOT NULL,
+    BusinessCustomerID  INT          NOT NULL,
+    FullName            VARCHAR(200) NOT NULL,
+    Email               VARCHAR(200) NOT NULL,
+    City                VARCHAR(100) NOT NULL,
+    PreviousCity        VARCHAR(100) NULL,
+    LoyaltyTier         VARCHAR(50)  NOT NULL,
+    LastUpdatedDate     DATE         NOT NULL
+);
+
+INSERT INTO dbo.DimCustomer_Type3
+SELECT
+    ROW_NUMBER() OVER (ORDER BY BusinessCustomerID) AS CustomerKey,
+    BusinessCustomerID,
+    FullName,
+    Email,
+    City,
+    CAST(NULL AS VARCHAR(100)) AS PreviousCity,
+    LoyaltyTier,
+    SourceEffectiveDate AS LastUpdatedDate
+FROM dbo.stage_customer_snapshot
+WHERE BatchID = 1;
+
+SELECT *
+FROM dbo.DimCustomer_Type3
+ORDER BY BusinessCustomerID;</code></pre>
+<h3>Expected result</h3>
+<p>Three Type 3 rows are inserted with PreviousCity as NULL.</p>
+</section>
+
+<section id="step-6">
+<h2>Step 6: SCD Type 4 initial load</h2>
+<p><strong>Objective:</strong> Create separate current and history tables.</p>
+<h3>Script for this step</h3>
+<pre><code>CREATE TABLE dbo.DimCustomer_Type4_Current (
+    CustomerKey         INT          NOT NULL,
+    BusinessCustomerID  INT          NOT NULL,
+    FullName            VARCHAR(200) NOT NULL,
+    Email               VARCHAR(200) NOT NULL,
+    City                VARCHAR(100) NOT NULL,
+    LoyaltyTier         VARCHAR(50)  NOT NULL,
+    LastUpdatedDate     DATE         NOT NULL
+);
+
+CREATE TABLE dbo.DimCustomer_Type4_History (
+    HistoryKey          INT          NOT NULL,
+    BusinessCustomerID  INT          NOT NULL,
+    FullName            VARCHAR(200) NOT NULL,
+    Email               VARCHAR(200) NOT NULL,
+    City                VARCHAR(100) NOT NULL,
+    LoyaltyTier         VARCHAR(50)  NOT NULL,
+    HistoryReason       VARCHAR(200) NOT NULL,
+    HistoryCapturedDate DATE         NOT NULL
+);
+
+INSERT INTO dbo.DimCustomer_Type4_Current
+SELECT
+    ROW_NUMBER() OVER (ORDER BY BusinessCustomerID) AS CustomerKey,
+    BusinessCustomerID,
+    FullName,
+    Email,
+    City,
+    LoyaltyTier,
+    SourceEffectiveDate AS LastUpdatedDate
+FROM dbo.stage_customer_snapshot
+WHERE BatchID = 1;
+
+SELECT *
+FROM dbo.DimCustomer_Type4_Current
+ORDER BY BusinessCustomerID;</code></pre>
+<h3>Expected result</h3>
+<p>Three rows are inserted into the Type 4 current table and no history rows exist yet.</p>
+</section>
+
+<section id="step-7">
+<h2>Step 7: SCD Type 6 initial load</h2>
+<p><strong>Objective:</strong> Create a hybrid dimension combining Type 2 history and Type 3 previous city.</p>
+<h3>Script for this step</h3>
+<pre><code>CREATE TABLE dbo.DimCustomer_Type6 (
+    CustomerKey         INT          NOT NULL,
+    BusinessCustomerID  INT          NOT NULL,
+    FullName            VARCHAR(200) NOT NULL,
+    Email               VARCHAR(200) NOT NULL,
+    City                VARCHAR(100) NOT NULL,
+    PreviousCity        VARCHAR(100) NULL,
+    LoyaltyTier         VARCHAR(50)  NOT NULL,
+    EffectiveStartDate  DATE         NOT NULL,
+    EffectiveEndDate    DATE         NULL,
+    IsCurrent           INT          NOT NULL
+);
+
+INSERT INTO dbo.DimCustomer_Type6
+SELECT
+    ROW_NUMBER() OVER (ORDER BY BusinessCustomerID) AS CustomerKey,
+    BusinessCustomerID,
+    FullName,
+    Email,
+    City,
+    CAST(NULL AS VARCHAR(100)) AS PreviousCity,
+    LoyaltyTier,
+    SourceEffectiveDate AS EffectiveStartDate,
+    CAST(NULL AS DATE) AS EffectiveEndDate,
+    1 AS IsCurrent
+FROM dbo.stage_customer_snapshot
+WHERE BatchID = 1;
+
+SELECT *
+FROM dbo.DimCustomer_Type6
+ORDER BY BusinessCustomerID, EffectiveStartDate;</code></pre>
+<h3>Expected result</h3>
+<p>Three Type 6 current rows are inserted.</p>
+</section>
+
+<section id="step-8">
+<h2>Step 8: Load Batch 2 source changes</h2>
+<p><strong>Objective:</strong> Load a second source extract that contains changed, unchanged, and new customers.</p>
+<h3>Script for this step</h3>
+<pre><code>-- Batch 2: Later customer extract from the source system
+-- Scenario:
+--   1001 changed City from New York to Boston and LoyaltyTier from Silver to Gold.
+--   1002 changed Email only.
+--   1003 did not change.
+--   1004 is a new customer.
+INSERT INTO dbo.stage_customer_snapshot VALUES
+(2, 1001, &#x27;James Wilson&#x27;,    &#x27;james.wilson@example.com&#x27;,       &#x27;Boston&#x27;,      &#x27;Gold&#x27;,   &#x27;2024-04-01&#x27;),
+(2, 1002, &#x27;Sophia Martinez&#x27;, &#x27;s.martinez.new@example.com&#x27;,     &#x27;Los Angeles&#x27;, &#x27;Gold&#x27;,   &#x27;2024-04-01&#x27;),
+(2, 1003, &#x27;Ethan Brown&#x27;,     &#x27;ethan.brown@example.com&#x27;,        &#x27;Chicago&#x27;,     &#x27;Bronze&#x27;, &#x27;2024-04-01&#x27;),
+(2, 1004, &#x27;Olivia Davis&#x27;,    &#x27;olivia.davis@example.com&#x27;,       &#x27;Houston&#x27;,     &#x27;Silver&#x27;, &#x27;2024-04-01&#x27;);
+
+SELECT *
+FROM dbo.stage_customer_snapshot
+ORDER BY BatchID, BusinessCustomerID;</code></pre>
+<h3>Expected result</h3>
+<p>Four BatchID 2 rows are added to the source snapshot table.</p>
+</section>
+
+<section id="step-9">
+<h2>Step 9: Apply SCD Type 0</h2>
+<p><strong>Objective:</strong> Preserve original values and insert only new customers.</p>
+<h3>Script for this step</h3>
+<pre><code>-- SCD Type 0 behavior:
+-- Do nothing to existing rows.
+-- Only insert brand-new customers if the dimension did not already know them.
+INSERT INTO dbo.DimCustomer_Type0
+SELECT
+    (SELECT COALESCE(MAX(CustomerKey), 0) FROM dbo.DimCustomer_Type0)
+        + ROW_NUMBER() OVER (ORDER BY s.BusinessCustomerID) AS CustomerKey,
+    s.BusinessCustomerID,
+    s.FullName,
+    s.City AS OriginalCity,
+    s.LoyaltyTier AS OriginalLoyaltyTier,
+    s.SourceEffectiveDate AS CreatedDate
+FROM dbo.stage_customer_snapshot AS s
+LEFT JOIN dbo.DimCustomer_Type0 AS d
+    ON s.BusinessCustomerID = d.BusinessCustomerID
+WHERE s.BatchID = 2
+  AND d.BusinessCustomerID IS NULL;
+
+SELECT *
+FROM dbo.DimCustomer_Type0
+ORDER BY BusinessCustomerID;</code></pre>
+<h3>Expected result</h3>
+<p>Customer 1001 keeps OriginalCity = New York; customer 1004 is inserted.</p>
+</section>
+
+<section id="step-10">
+<h2>Step 10: Apply SCD Type 1</h2>
+<p><strong>Objective:</strong> Overwrite changed rows and insert new rows.</p>
+<h3>Script for this step</h3>
+<pre><code>-- SCD Type 1 behavior:
+-- Overwrite changed attributes. No history is preserved.
+UPDATE d
+SET
+    d.FullName = s.FullName,
+    d.Email = s.Email,
+    d.City = s.City,
+    d.LoyaltyTier = s.LoyaltyTier,
+    d.LastUpdatedDate = s.SourceEffectiveDate
+FROM dbo.DimCustomer_Type1 AS d
+JOIN dbo.stage_customer_snapshot AS s
+    ON d.BusinessCustomerID = s.BusinessCustomerID
+WHERE s.BatchID = 2
+  AND (
+        d.FullName &lt;&gt; s.FullName
+     OR d.Email &lt;&gt; s.Email
+     OR d.City &lt;&gt; s.City
+     OR d.LoyaltyTier &lt;&gt; s.LoyaltyTier
+  );
+
+-- Insert new customers.
+INSERT INTO dbo.DimCustomer_Type1
+SELECT
+    (SELECT COALESCE(MAX(CustomerKey), 0) FROM dbo.DimCustomer_Type1)
+        + ROW_NUMBER() OVER (ORDER BY s.BusinessCustomerID) AS CustomerKey,
+    s.BusinessCustomerID,
+    s.FullName,
+    s.Email,
+    s.City,
+    s.LoyaltyTier,
+    s.SourceEffectiveDate AS LastUpdatedDate
+FROM dbo.stage_customer_snapshot AS s
+LEFT JOIN dbo.DimCustomer_Type1 AS d
+    ON s.BusinessCustomerID = d.BusinessCustomerID
+WHERE s.BatchID = 2
+  AND d.BusinessCustomerID IS NULL;
+
+SELECT *
+FROM dbo.DimCustomer_Type1
+ORDER BY BusinessCustomerID;</code></pre>
+<h3>Expected result</h3>
+<p>Customer 1001 now shows Boston and Gold; customer 1002 has the new email; no history is preserved.</p>
+</section>
+
+<section id="step-11">
+<h2>Step 11: Apply SCD Type 2</h2>
+<p><strong>Objective:</strong> Expire old current rows and insert new current versions.</p>
+<h3>Script for this step</h3>
+<pre><code>-- SCD Type 2 behavior:
+-- Expire the current row when tracked attributes change.
+-- Then insert a new current row.
+
+-- 1) Expire changed current records.
+UPDATE d
+SET
+    d.EffectiveEndDate = DATEADD(DAY, -1, s.SourceEffectiveDate),
+    d.IsCurrent = 0
+FROM dbo.DimCustomer_Type2 AS d
+JOIN dbo.stage_customer_snapshot AS s
+    ON d.BusinessCustomerID = s.BusinessCustomerID
+WHERE s.BatchID = 2
+  AND d.IsCurrent = 1
+  AND (
+        d.FullName &lt;&gt; s.FullName
+     OR d.Email &lt;&gt; s.Email
+     OR d.City &lt;&gt; s.City
+     OR d.LoyaltyTier &lt;&gt; s.LoyaltyTier
+  );
+
+-- 2) Insert new current records for changed or new customers.
+INSERT INTO dbo.DimCustomer_Type2
+SELECT
+    (SELECT COALESCE(MAX(CustomerKey), 0) FROM dbo.DimCustomer_Type2)
+        + ROW_NUMBER() OVER (ORDER BY s.BusinessCustomerID) AS CustomerKey,
+    s.BusinessCustomerID,
+    s.FullName,
+    s.Email,
+    s.City,
+    s.LoyaltyTier,
+    s.SourceEffectiveDate AS EffectiveStartDate,
+    CAST(NULL AS DATE) AS EffectiveEndDate,
+    1 AS IsCurrent
+FROM dbo.stage_customer_snapshot AS s
+LEFT JOIN dbo.DimCustomer_Type2 AS current_d
+    ON s.BusinessCustomerID = current_d.BusinessCustomerID
+   AND current_d.IsCurrent = 1
+WHERE s.BatchID = 2
+  AND current_d.BusinessCustomerID IS NULL;
+
+SELECT *
+FROM dbo.DimCustomer_Type2
+ORDER BY BusinessCustomerID, EffectiveStartDate;</code></pre>
+<h3>Expected result</h3>
+<p>Changed customers have old rows expired and new current rows inserted; customer 1004 is inserted.</p>
+</section>
+
+<section id="step-12">
+<h2>Step 12: Apply SCD Type 3</h2>
+<p><strong>Objective:</strong> Store one previous value in the same row.</p>
+<h3>Script for this step</h3>
+<pre><code>-- SCD Type 3 behavior:
+-- Keep the current value and one previous value in the same row.
+UPDATE d
+SET
+    d.PreviousCity = CASE WHEN d.City &lt;&gt; s.City THEN d.City ELSE d.PreviousCity END,
+    d.FullName = s.FullName,
+    d.Email = s.Email,
+    d.City = s.City,
+    d.LoyaltyTier = s.LoyaltyTier,
+    d.LastUpdatedDate = s.SourceEffectiveDate
+FROM dbo.DimCustomer_Type3 AS d
+JOIN dbo.stage_customer_snapshot AS s
+    ON d.BusinessCustomerID = s.BusinessCustomerID
+WHERE s.BatchID = 2
+  AND (
+        d.FullName &lt;&gt; s.FullName
+     OR d.Email &lt;&gt; s.Email
+     OR d.City &lt;&gt; s.City
+     OR d.LoyaltyTier &lt;&gt; s.LoyaltyTier
+  );
+
+INSERT INTO dbo.DimCustomer_Type3
+SELECT
+    (SELECT COALESCE(MAX(CustomerKey), 0) FROM dbo.DimCustomer_Type3)
+        + ROW_NUMBER() OVER (ORDER BY s.BusinessCustomerID) AS CustomerKey,
+    s.BusinessCustomerID,
+    s.FullName,
+    s.Email,
+    s.City,
+    CAST(NULL AS VARCHAR(100)) AS PreviousCity,
+    s.LoyaltyTier,
+    s.SourceEffectiveDate AS LastUpdatedDate
+FROM dbo.stage_customer_snapshot AS s
+LEFT JOIN dbo.DimCustomer_Type3 AS d
+    ON s.BusinessCustomerID = d.BusinessCustomerID
+WHERE s.BatchID = 2
+  AND d.BusinessCustomerID IS NULL;
+
+SELECT *
+FROM dbo.DimCustomer_Type3
+ORDER BY BusinessCustomerID;</code></pre>
+<h3>Expected result</h3>
+<p>Customer 1001 has City = Boston and PreviousCity = New York.</p>
+</section>
+
+<section id="step-13">
+<h2>Step 13: Apply SCD Type 4</h2>
+<p><strong>Objective:</strong> Store current values separately from history records.</p>
+<h3>Script for this step</h3>
+<pre><code>-- SCD Type 4 behavior:
+-- Current values are stored in one table.
+-- Historical before-images are stored in a separate history table.
+
+-- 1) Capture old current values into the history table before overwriting.
+INSERT INTO dbo.DimCustomer_Type4_History
+SELECT
+    (SELECT COALESCE(MAX(HistoryKey), 0) FROM dbo.DimCustomer_Type4_History)
+        + ROW_NUMBER() OVER (ORDER BY d.BusinessCustomerID) AS HistoryKey,
+    d.BusinessCustomerID,
+    d.FullName,
+    d.Email,
+    d.City,
+    d.LoyaltyTier,
+    &#x27;Changed in source batch 2&#x27; AS HistoryReason,
+    s.SourceEffectiveDate AS HistoryCapturedDate
+FROM dbo.DimCustomer_Type4_Current AS d
+JOIN dbo.stage_customer_snapshot AS s
+    ON d.BusinessCustomerID = s.BusinessCustomerID
+WHERE s.BatchID = 2
+  AND (
+        d.FullName &lt;&gt; s.FullName
+     OR d.Email &lt;&gt; s.Email
+     OR d.City &lt;&gt; s.City
+     OR d.LoyaltyTier &lt;&gt; s.LoyaltyTier
+  );
+
+-- 2) Overwrite current table.
+UPDATE d
+SET
+    d.FullName = s.FullName,
+    d.Email = s.Email,
+    d.City = s.City,
+    d.LoyaltyTier = s.LoyaltyTier,
+    d.LastUpdatedDate = s.SourceEffectiveDate
+FROM dbo.DimCustomer_Type4_Current AS d
+JOIN dbo.stage_customer_snapshot AS s
+    ON d.BusinessCustomerID = s.BusinessCustomerID
+WHERE s.BatchID = 2
+  AND (
+        d.FullName &lt;&gt; s.FullName
+     OR d.Email &lt;&gt; s.Email
+     OR d.City &lt;&gt; s.City
+     OR d.LoyaltyTier &lt;&gt; s.LoyaltyTier
+  );
+
+-- 3) Insert new customers into current table.
+INSERT INTO dbo.DimCustomer_Type4_Current
+SELECT
+    (SELECT COALESCE(MAX(CustomerKey), 0) FROM dbo.DimCustomer_Type4_Current)
+        + ROW_NUMBER() OVER (ORDER BY s.BusinessCustomerID) AS CustomerKey,
+    s.BusinessCustomerID,
+    s.FullName,
+    s.Email,
+    s.City,
+    s.LoyaltyTier,
+    s.SourceEffectiveDate AS LastUpdatedDate
+FROM dbo.stage_customer_snapshot AS s
+LEFT JOIN dbo.DimCustomer_Type4_Current AS d
+    ON s.BusinessCustomerID = d.BusinessCustomerID
+WHERE s.BatchID = 2
+  AND d.BusinessCustomerID IS NULL;
+
+SELECT * FROM dbo.DimCustomer_Type4_Current ORDER BY BusinessCustomerID;
+SELECT * FROM dbo.DimCustomer_Type4_History ORDER BY BusinessCustomerID, HistoryKey;</code></pre>
+<h3>Expected result</h3>
+<p>Current rows are overwritten and changed before-images are written to the history table.</p>
+</section>
+
+<section id="step-14">
+<h2>Step 14: Apply SCD Type 6</h2>
+<p><strong>Objective:</strong> Use a hybrid SCD pattern with Type 2 dates and previous city.</p>
+<h3>Script for this step</h3>
+<pre><code>-- SCD Type 6 behavior:
+-- Hybrid example: Type 2 history + Type 3 previous city.
+
+-- 1) Expire changed current records.
+UPDATE d
+SET
+    d.EffectiveEndDate = DATEADD(DAY, -1, s.SourceEffectiveDate),
+    d.IsCurrent = 0
+FROM dbo.DimCustomer_Type6 AS d
+JOIN dbo.stage_customer_snapshot AS s
+    ON d.BusinessCustomerID = s.BusinessCustomerID
+WHERE s.BatchID = 2
+  AND d.IsCurrent = 1
+  AND (
+        d.FullName &lt;&gt; s.FullName
+     OR d.Email &lt;&gt; s.Email
+     OR d.City &lt;&gt; s.City
+     OR d.LoyaltyTier &lt;&gt; s.LoyaltyTier
+  );
+
+-- 2) Insert changed or new current records.
+-- PreviousCity is taken from the latest expired row when available.
+INSERT INTO dbo.DimCustomer_Type6
+SELECT
+    (SELECT COALESCE(MAX(CustomerKey), 0) FROM dbo.DimCustomer_Type6)
+        + ROW_NUMBER() OVER (ORDER BY s.BusinessCustomerID) AS CustomerKey,
+    s.BusinessCustomerID,
+    s.FullName,
+    s.Email,
+    s.City,
+    expired.City AS PreviousCity,
+    s.LoyaltyTier,
+    s.SourceEffectiveDate AS EffectiveStartDate,
+    CAST(NULL AS DATE) AS EffectiveEndDate,
+    1 AS IsCurrent
+FROM dbo.stage_customer_snapshot AS s
+LEFT JOIN dbo.DimCustomer_Type6 AS current_d
+    ON s.BusinessCustomerID = current_d.BusinessCustomerID
+   AND current_d.IsCurrent = 1
+LEFT JOIN dbo.DimCustomer_Type6 AS expired
+    ON s.BusinessCustomerID = expired.BusinessCustomerID
+   AND expired.IsCurrent = 0
+   AND expired.EffectiveEndDate = DATEADD(DAY, -1, s.SourceEffectiveDate)
+WHERE s.BatchID = 2
+  AND current_d.BusinessCustomerID IS NULL;
+
+SELECT *
+FROM dbo.DimCustomer_Type6
+ORDER BY BusinessCustomerID, EffectiveStartDate;</code></pre>
+<h3>Expected result</h3>
+<p>Customer 1001 has history rows and the new current row includes PreviousCity = New York.</p>
+</section>
+
+<section id="step-15">
+<h2>Step 15: Final comparison and audit</h2>
+<p><strong>Objective:</strong> Compare row counts and inspect current and historical views.</p>
+<h3>Script for this step</h3>
+<pre><code>-- Compare the different SCD results side by side.
+
+SELECT &#x27;Type 0&#x27; AS SCDType, COUNT(*) AS RowCount FROM dbo.DimCustomer_Type0
+UNION ALL
+SELECT &#x27;Type 1&#x27;, COUNT(*) FROM dbo.DimCustomer_Type1
+UNION ALL
+SELECT &#x27;Type 2&#x27;, COUNT(*) FROM dbo.DimCustomer_Type2
+UNION ALL
+SELECT &#x27;Type 3&#x27;, COUNT(*) FROM dbo.DimCustomer_Type3
+UNION ALL
+SELECT &#x27;Type 4 Current&#x27;, COUNT(*) FROM dbo.DimCustomer_Type4_Current
+UNION ALL
+SELECT &#x27;Type 4 History&#x27;, COUNT(*) FROM dbo.DimCustomer_Type4_History
+UNION ALL
+SELECT &#x27;Type 6&#x27;, COUNT(*) FROM dbo.DimCustomer_Type6;
+
+-- Current customer view from Type 2
+SELECT
+    BusinessCustomerID,
+    FullName,
+    Email,
+    City,
+    LoyaltyTier,
+    EffectiveStartDate,
+    EffectiveEndDate,
+    IsCurrent
+FROM dbo.DimCustomer_Type2
+WHERE IsCurrent = 1
+ORDER BY BusinessCustomerID;
+
+-- Full customer history from Type 2
+SELECT
+    BusinessCustomerID,
+    FullName,
+    Email,
+    City,
+    LoyaltyTier,
+    EffectiveStartDate,
+    EffectiveEndDate,
+    IsCurrent
+FROM dbo.DimCustomer_Type2
+ORDER BY BusinessCustomerID, EffectiveStartDate;</code></pre>
+<h3>Expected result</h3>
+<p>Different SCD types show different row counts and history behavior.</p>
+</section>
+
+
+<section id="discussion">
+<h2>Discussion Questions</h2>
+<ul>
+<li>Which SCD type is best when the business only cares about the latest customer email?</li>
+<li>Which SCD type is best when analysts need to know what city a customer belonged to at the time of a sale?</li>
+<li>Why does Type 2 create more rows than Type 1?</li>
+<li>Why might Type 4 be useful when current queries need to stay fast and simple?</li>
+<li>What extra complexity does Type 6 introduce?</li>
+</ul>
+</section>
+
+<section id="expected-results">
+<h2>Expected Learning Results</h2>
+<ul>
+<li>Type 0 preserves original values.</li>
+<li>Type 1 overwrites history.</li>
+<li>Type 2 creates multiple rows for changed customers.</li>
+<li>Type 3 stores one previous value in the current row.</li>
+<li>Type 4 separates current data and history data.</li>
+<li>Type 6 combines full history with a previous-value column.</li>
+</ul>
+</section>
+</main>
+<footer>Classroom lab guide for Microsoft Fabric Warehouse Slowly Changing Dimensions.</footer>
+</body></html>
