@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simple Fabric Lakehouse Step-by-Step Lab</title>
+<style>
+:root { --blue:#1654d1; --purple:#5c2d91; --dark:#123047; --bg:#f6f8fb; --panel:#fff; --border:#d7dee8; --code:#0f172a; --codetext:#e5e7eb; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:"Segoe UI", Arial, sans-serif; background:var(--bg); color:#1f2937; line-height:1.6; }
+header { background:linear-gradient(135deg,var(--blue),var(--purple)); color:white; padding:42px 28px; text-align:center; }
+header h1 { margin:0; font-size:2.15rem; }
+header p { max-width:980px; margin:12px auto 0; font-size:1.05rem; }
+main { max-width:1120px; margin:auto; padding:24px; }
+section { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:22px; margin:16px 0; box-shadow:0 2px 8px rgba(15,23,42,.05); }
+h2 { color:var(--dark); margin-top:0; border-bottom:2px solid #e5f2fb; padding-bottom:8px; }
+h3 { color:#23445f; }
+.badge { display:inline-block; background:#eef6fc; color:#123047; border:1px solid #c7e3f7; border-radius:999px; padding:4px 10px; margin:4px; font-weight:600; }
+.success { background:#eef8ef; border-left:5px solid #21a366; padding:14px 16px; border-radius:8px; margin:14px 0; }
+.warning { background:#fff0ed; border-left:5px solid #d83b01; padding:14px 16px; border-radius:8px; margin:14px 0; }
+.note { background:#fff8df; border-left:5px solid #f2c94c; padding:14px 16px; border-radius:8px; margin:14px 0; }
+table { width:100%; border-collapse:collapse; margin:14px 0; }
+th,td { border:1px solid var(--border); padding:10px 12px; text-align:left; vertical-align:top; }
+th { background:#eef6fc; color:var(--dark); }
+pre { background:var(--code); color:var(--codetext); padding:18px; border-radius:12px; overflow:auto; white-space:pre; font-family:Consolas,"Courier New",monospace; font-size:.84rem; line-height:1.45; border:1px solid #263145; }
+code { font-family:Consolas,"Courier New",monospace; }
+.schema { background:#f8fafc; border:1px dashed #9fb3c8; border-radius:12px; padding:16px; font-family:Consolas,"Courier New",monospace; white-space:pre; overflow-x:auto; }
+footer { text-align:center; color:#5b6472; padding:30px; }
+@media print { body{background:white} section{box-shadow:none; page-break-inside:avoid} pre{white-space:pre-wrap} header{print-color-adjust:exact;-webkit-print-color-adjust:exact} }
+</style>
+</head>
+<body>
+<header>
+<h1>Simple Microsoft Fabric Lakehouse Lab</h1>
+<p>Beginner-friendly step-by-step lab with sample Lakehouse data, Notebook code, Bronze/Silver/Gold tables, and SQL checks</p>
+<p><span class="badge">Fabric Lakehouse</span><span class="badge">Notebook</span><span class="badge">Delta Tables</span><span class="badge">Sample Data</span></p>
+</header>
+<main>
+<section id="overview">
+<h2>Lab Overview</h2>
+<table>
+<thead><tr><th>Field</th><th>Value</th></tr></thead>
+<tbody>
+<tr><td>Lab number</td><td>Simple Lakehouse Lab 1</td></tr>
+<tr><td>Estimated duration</td><td>30–40 minutes</td></tr>
+<tr><td>Modality</td><td>Hands-on beginner lab</td></tr>
+<tr><td>Primary Fabric items</td><td>Workspace, Lakehouse, Notebook</td></tr>
+<tr><td>Output tables</td><td><code>bronze_sales_sample</code>, <code>silver_sales_clean</code>, <code>gold_sales_by_category</code></td></tr>
+</tbody>
+</table>
+<div class="success"><strong>Goal:</strong> Create a simple Lakehouse ETL flow using sample sales data generated directly inside a Fabric Notebook.</div>
+</section>
+
+<section id="definitions">
+<h2>Basic Definitions</h2>
+<table>
+<thead><tr><th>Term</th><th>Simple meaning</th></tr></thead>
+<tbody>
+<tr><td>Lakehouse</td><td>A Fabric data item that stores raw files and Delta tables in one place.</td></tr>
+<tr><td>Files</td><td>The raw file area of a Lakehouse.</td></tr>
+<tr><td>Tables</td><td>The structured Delta table area of a Lakehouse.</td></tr>
+<tr><td>Bronze table</td><td>Raw data saved as a table.</td></tr>
+<tr><td>Silver table</td><td>Cleaned and enriched data.</td></tr>
+<tr><td>Gold table</td><td>Aggregated data ready for reporting.</td></tr>
+</tbody>
+</table>
+</section>
+
+<section id="flow">
+<h2>Lab Flow</h2>
+<div class="schema">Create Lakehouse
+      ↓
+Create Notebook
+      ↓
+Generate sample CSV file in Files
+      ↓
+Read CSV with PySpark
+      ↓
+Save Bronze Delta table
+      ↓
+Create Silver cleaned table
+      ↓
+Create Gold category summary
+      ↓
+Run SQL checks</div>
+</section>
+
+<section id="sample-data">
+<h2>Sample Data</h2>
+<p>The notebook creates this CSV file automatically in the Lakehouse Files area.</p>
+<pre><code>OrderID,OrderDate,CustomerName,ProductName,Category,Quantity,UnitPrice
+1001,2024-06-01,James Wilson,Wireless Headphones,Electronics,2,89.99
+1002,2024-06-02,Sophia Martinez,Smart Watch,Electronics,1,249.99
+1003,2024-06-03,Ethan Brown,Running Jacket,Clothing,2,79.99
+1004,2024-06-04,Olivia Davis,Yoga Mat,Sports,3,29.99
+</code></pre>
+</section>
+
+
+<section id="step-1">
+<h2>Step 1: Create or open a Fabric workspace</h2>
+<p>Use an existing Fabric-enabled workspace or create a new workspace for the lab.</p>
+<div class="note"><strong>Code:</strong> No code required for this step.</div>
+</section>
+
+<section id="step-2">
+<h2>Step 2: Create a Lakehouse</h2>
+<p>Create a Lakehouse named <code>lh_simple_sales_lab</code>. The Lakehouse should show <strong>Files</strong> and <strong>Tables</strong> in the Explorer.</p>
+<div class="note"><strong>Code:</strong> No code required for this step.</div>
+</section>
+
+<section id="step-3">
+<h2>Step 3: Create a Notebook</h2>
+<p>Create a notebook named <code>NB_Simple_Lakehouse_ETL</code> and attach it to the Lakehouse.</p>
+<div class="note"><strong>Code:</strong> No code required for this step.</div>
+</section>
+
+<section id="step-4">
+<h2>Step 4: Run the notebook code</h2>
+<p>Paste the notebook code into a Python/PySpark cell and run it from top to bottom.</p>
+<h3>Code / Expected Output</h3><pre><code># ============================================================
+# SIMPLE MICROSOFT FABRIC LAKEHOUSE LAB
+# Goal: Create sample data, load Bronze table, transform Silver table,
+#       create Gold summary table, and run simple checks.
+# ============================================================
+
+from pyspark.sql import functions as F
+import os
+
+# STEP 1: Define paths and table names
+raw_folder = &quot;/lakehouse/default/Files/simple_lakehouse_lab&quot;
+raw_file = f&quot;{raw_folder}/sales_sample.csv&quot;
+
+bronze_table = &quot;bronze_sales_sample&quot;
+silver_table = &quot;silver_sales_clean&quot;
+gold_table = &quot;gold_sales_by_category&quot;
+
+# STEP 2: Create sample CSV file in Lakehouse Files
+os.makedirs(raw_folder, exist_ok=True)
+
+sample_csv = &quot;&quot;&quot;OrderID,OrderDate,CustomerName,ProductName,Category,Quantity,UnitPrice
+1001,2024-06-01,James Wilson,Wireless Headphones,Electronics,2,89.99
+1002,2024-06-02,Sophia Martinez,Smart Watch,Electronics,1,249.99
+1003,2024-06-03,Ethan Brown,Running Jacket,Clothing,2,79.99
+1004,2024-06-04,Olivia Davis,Yoga Mat,Sports,3,29.99
+&quot;&quot;&quot;
+
+with open(raw_file, &quot;w&quot;, encoding=&quot;utf-8&quot;) as f:
+    f.write(sample_csv)
+
+print(&quot;Sample file created:&quot;, raw_file)
+
+# STEP 3: Read the CSV file
+raw_df = (
+    spark.read
+    .option(&quot;header&quot;, True)
+    .option(&quot;inferSchema&quot;, True)
+    .csv(raw_file)
+)
+
+display(raw_df)
+
+# STEP 4: Save raw data as Bronze Delta table
+raw_df.write.format(&quot;delta&quot;).mode(&quot;overwrite&quot;).option(&quot;overwriteSchema&quot;, &quot;true&quot;).saveAsTable(bronze_table)
+print(&quot;Bronze table created:&quot;, bronze_table)
+
+# STEP 5: Transform Bronze to Silver
+silver_df = (
+    spark.table(bronze_table)
+    .withColumn(&quot;OrderDate&quot;, F.to_date(&quot;OrderDate&quot;))
+    .withColumn(&quot;Quantity&quot;, F.col(&quot;Quantity&quot;).cast(&quot;int&quot;))
+    .withColumn(&quot;UnitPrice&quot;, F.col(&quot;UnitPrice&quot;).cast(&quot;decimal(10,2)&quot;))
+    .withColumn(&quot;SalesAmount&quot;, F.round(F.col(&quot;Quantity&quot;) * F.col(&quot;UnitPrice&quot;), 2))
+)
+
+silver_df.write.format(&quot;delta&quot;).mode(&quot;overwrite&quot;).option(&quot;overwriteSchema&quot;, &quot;true&quot;).saveAsTable(silver_table)
+print(&quot;Silver table created:&quot;, silver_table)
+display(spark.table(silver_table))
+
+# STEP 6: Create Gold summary table
+gold_df = (
+    spark.table(silver_table)
+    .groupBy(&quot;Category&quot;)
+    .agg(
+        F.countDistinct(&quot;OrderID&quot;).alias(&quot;TotalOrders&quot;),
+        F.sum(&quot;Quantity&quot;).alias(&quot;TotalUnits&quot;),
+        F.round(F.sum(&quot;SalesAmount&quot;), 2).alias(&quot;TotalSales&quot;)
+    )
+)
+
+gold_df.write.format(&quot;delta&quot;).mode(&quot;overwrite&quot;).option(&quot;overwriteSchema&quot;, &quot;true&quot;).saveAsTable(gold_table)
+print(&quot;Gold table created:&quot;, gold_table)
+display(spark.table(gold_table).orderBy(F.desc(&quot;TotalSales&quot;)))
+
+# STEP 7: Simple audit checks
+print(&quot;Bronze rows:&quot;, spark.table(bronze_table).count())
+print(&quot;Silver rows:&quot;, spark.table(silver_table).count())
+print(&quot;Gold rows:&quot;, spark.table(gold_table).count())
+</code></pre>
+</section>
+
+<section id="step-5">
+<h2>Step 5: Run optional SQL checks</h2>
+<p>Add SQL cells after the Python code and run the checks.</p>
+<h3>Code / Expected Output</h3><pre><code>%%sql
+SELECT *
+FROM silver_sales_clean
+ORDER BY OrderDate;
+
+%%sql
+SELECT *
+FROM gold_sales_by_category
+ORDER BY TotalSales DESC;
+</code></pre>
+</section>
+
+<section id="step-6">
+<h2>Step 6: Review Lakehouse results</h2>
+<p>Open the Lakehouse Explorer and confirm the files and tables are created.</p>
+<h3>Code / Expected Output</h3><pre><code>Expected objects:
+Files/simple_lakehouse_lab/sales_sample.csv
+Tables/bronze_sales_sample
+Tables/silver_sales_clean
+Tables/gold_sales_by_category</code></pre>
+</section>
+
+
+<section id="expected-results">
+<h2>Expected Results</h2>
+<ul>
+<li>The Lakehouse Files area contains <code>Files/simple_lakehouse_lab/sales_sample.csv</code>.</li>
+<li>The Tables area contains <code>bronze_sales_sample</code>.</li>
+<li>The Tables area contains <code>silver_sales_clean</code>.</li>
+<li>The Tables area contains <code>gold_sales_by_category</code>.</li>
+<li>The Gold table shows sales totals by category.</li>
+</ul>
+</section>
+
+<section id="troubleshooting">
+<h2>Troubleshooting</h2>
+<ul>
+<li>If <code>/lakehouse/default</code> is not found, attach the notebook to the Lakehouse.</li>
+<li>If Spark is slow, wait for the first notebook run to start the Spark session.</li>
+<li>If tables already exist, the notebook overwrites them safely for this classroom lab.</li>
+<li>If SQL checks fail, run them in separate cells and include <code>%%sql</code> as the first line.</li>
+</ul>
+</section>
+</main>
+<footer>Simple classroom lab for Microsoft Fabric Lakehouse beginners.</footer>
+</body></html>
